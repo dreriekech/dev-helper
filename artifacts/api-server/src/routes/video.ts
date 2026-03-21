@@ -608,14 +608,16 @@ const SONIOX_API_KEY = process.env.SONIOX_API_KEY || "";
 const SONIOX_BASE = "https://api.soniox.com/v1";
 
 async function sonioxUploadFile(filePath: string): Promise<string> {
-  const FormData = (await import("form-data")).default;
+  const fileBuffer = fs.readFileSync(filePath);
+  const fileName = path.basename(filePath);
+  const blob = new Blob([fileBuffer], { type: "audio/mpeg" });
   const form = new FormData();
-  form.append("file", fs.createReadStream(filePath));
+  form.append("file", blob, fileName);
 
   const resp = await fetch(`${SONIOX_BASE}/files`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${SONIOX_API_KEY}`, ...form.getHeaders() },
-    body: form as any,
+    headers: { Authorization: `Bearer ${SONIOX_API_KEY}` },
+    body: form,
   });
   if (!resp.ok) throw new Error(`Soniox upload failed: ${resp.status} ${await resp.text()}`);
   const data = await resp.json() as any;
