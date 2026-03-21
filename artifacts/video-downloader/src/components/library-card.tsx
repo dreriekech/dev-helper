@@ -218,6 +218,8 @@ export function LibraryCard({ items, loading, onRefresh, onSaveToDevice, onRemov
                   src={previewItem.streamUrl}
                   controls
                   autoPlay
+                  preload="auto"
+                  playsInline
                   className="w-full max-h-[70vh] object-contain"
                   controlsList="nodownload"
                 />

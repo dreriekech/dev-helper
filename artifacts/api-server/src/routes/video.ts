@@ -347,13 +347,40 @@ router.get("/video/stream/:fileId", async (req, res): Promise<void> => {
   }
 
   const stat = fs.statSync(download.filepath);
+  const fileSize = stat.size;
+  const ext = path.extname(download.filepath).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    ".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo", ".mov": "video/quicktime",
+    ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac",
+    ".ogg": "audio/ogg", ".wav": "audio/wav", ".flac": "audio/flac",
+  };
+  const contentType = mimeTypes[ext] || "application/octet-stream";
 
-  res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader("Content-Disposition", `attachment; filename="${download.filename}"`);
-  res.setHeader("Content-Length", stat.size);
+  const range = req.headers.range;
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunkSize = end - start + 1;
 
-  const stream = fs.createReadStream(download.filepath);
-  stream.pipe(res);
+    res.writeHead(206, {
+      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": chunkSize,
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=300",
+    });
+    fs.createReadStream(download.filepath, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, {
+      "Content-Length": fileSize,
+      "Content-Type": contentType,
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "public, max-age=300",
+    });
+    fs.createReadStream(download.filepath).pipe(res);
+  }
 });
 
 router.get("/video/library", validateApiKey, (_req, res): void => {
@@ -561,7 +588,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     }
 
     if (!isAudioOnly) {
-      args.push("-c:v", "libx264", "-preset", "fast", "-crf", "23");
+      args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-threads", "0", "-movflags", "+faststart");
     }
     args.push("-c:a", "aac", "-b:a", "128k");
     args.push(outputPath);
