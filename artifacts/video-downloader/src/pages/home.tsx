@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, Clipboard, X, Key, LogOut, Infinity } from "lucide-react";
+import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, Clipboard, X, Key, LogOut, Infinity, FolderOpen } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useExtractVideoInfo, useDownloadVideo, setApiKey, type VideoFormat } from "@workspace/api-client-react";
 import { VideoCard } from "@/components/video-card";
@@ -10,6 +10,7 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const KEY_STORAGE = "vd_api_key";
+type Tab = "download" | "library";
 
 const platforms = [
   { icon: Youtube, name: "YouTube", color: "text-red-500" },
@@ -224,6 +225,7 @@ export default function Home() {
       return null;
     }
   });
+  const [activeTab, setActiveTab] = useState<Tab>("download");
   const [url, setUrl] = useState("");
   const { downloads, addDownload, clearHistory } = useRecentDownloads();
   const { lang, setLang, t } = useLang();
@@ -311,7 +313,7 @@ export default function Home() {
   const maskedKey = apiKeyValue.slice(0, 3) + "•".repeat(Math.max(0, apiKeyValue.length - 7)) + apiKeyValue.slice(-4);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col">
       <header className="border-b border-white/5 bg-[#0e0e16]/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -354,143 +356,215 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
-          <div className="space-y-4">
-            <div className="bg-[#12121a] rounded-xl border border-white/5 p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Search className="w-4 h-4 text-cyan-400" />
-                <h2 className="text-sm font-semibold">{t.toolTitle}</h2>
-              </div>
-              <p className="text-xs text-white/40 mb-4">{t.pasteHint}</p>
+      <nav className="border-b border-white/5 bg-[#0c0c14]/60">
+        <div className="max-w-6xl mx-auto px-4 flex">
+          <button
+            onClick={() => setActiveTab("download")}
+            className={cn(
+              "relative flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors",
+              activeTab === "download" ? "text-cyan-400" : "text-white/40 hover:text-white/70"
+            )}
+          >
+            <Download className="w-4 h-4" />
+            {t.tabDownload}
+            {activeTab === "download" && (
+              <motion.div
+                layoutId="tab-indicator"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-cyan-500 to-violet-600"
+              />
+            )}
+          </button>
+          <button
+            onClick={() => { setActiveTab("library"); library.refresh(); }}
+            className={cn(
+              "relative flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors",
+              activeTab === "library" ? "text-violet-400" : "text-white/40 hover:text-white/70"
+            )}
+          >
+            <FolderOpen className="w-4 h-4" />
+            {t.tabLibrary}
+            {library.items.length > 0 && (
+              <span className={cn(
+                "px-1.5 py-0.5 rounded-full text-[10px] font-bold min-w-[18px] text-center",
+                activeTab === "library"
+                  ? "bg-violet-500/20 text-violet-400"
+                  : "bg-white/10 text-white/40"
+              )}>
+                {library.items.length}
+              </span>
+            )}
+            {activeTab === "library" && (
+              <motion.div
+                layoutId="tab-indicator"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-violet-500 to-pink-600"
+              />
+            )}
+          </button>
+        </div>
+      </nav>
 
-              <form onSubmit={handleExtract} className="flex gap-2">
-                <div className="flex-1 flex items-center gap-2 bg-[#0a0a10] rounded-lg border border-white/10 focus-within:border-cyan-500/40 transition-colors px-3">
-                  <input
-                    type="url"
-                    value={url}
-                    onChange={(e) => setUrl(e.target.value)}
-                    placeholder={t.inputPlaceholder}
-                    className="flex-1 bg-transparent border-none outline-none text-sm py-2.5 placeholder:text-white/20 font-medium"
-                    required
-                  />
-                  {url ? (
-                    <button type="button" onClick={() => { setUrl(""); extractMutation.reset(); }} className="text-white/30 hover:text-white/60 transition-colors">
-                      <X className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <button type="button" onClick={handlePaste} className="text-white/30 hover:text-cyan-400 transition-colors" title="Paste">
-                      <Clipboard className="w-4 h-4" />
-                    </button>
-                  )}
+      <main className="flex-1 max-w-6xl mx-auto px-4 py-6 w-full">
+        <AnimatePresence mode="wait">
+          {activeTab === "download" ? (
+            <motion.div
+              key="download"
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -10 }}
+              transition={{ duration: 0.15 }}
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+                <div className="space-y-4">
+                  <div className="bg-[#12121a] rounded-xl border border-white/5 p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Search className="w-4 h-4 text-cyan-400" />
+                      <h2 className="text-sm font-semibold">{t.toolTitle}</h2>
+                    </div>
+                    <p className="text-xs text-white/40 mb-4">{t.pasteHint}</p>
+
+                    <form onSubmit={handleExtract} className="flex gap-2">
+                      <div className="flex-1 flex items-center gap-2 bg-[#0a0a10] rounded-lg border border-white/10 focus-within:border-cyan-500/40 transition-colors px-3">
+                        <input
+                          type="url"
+                          value={url}
+                          onChange={(e) => setUrl(e.target.value)}
+                          placeholder={t.inputPlaceholder}
+                          className="flex-1 bg-transparent border-none outline-none text-sm py-2.5 placeholder:text-white/20 font-medium"
+                          required
+                        />
+                        {url ? (
+                          <button type="button" onClick={() => { setUrl(""); extractMutation.reset(); }} className="text-white/30 hover:text-white/60 transition-colors">
+                            <X className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button type="button" onClick={handlePaste} className="text-white/30 hover:text-cyan-400 transition-colors" title="Paste">
+                            <Clipboard className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={extractMutation.isPending || !url.trim()}
+                        className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-violet-600 hover:from-cyan-400 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg font-bold text-sm transition-all flex items-center gap-2 shrink-0"
+                      >
+                        {extractMutation.isPending ? (
+                          <>
+                            <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            {t.extractingBtn}
+                          </>
+                        ) : (
+                          <>
+                            <Search className="w-4 h-4" />
+                            {t.extractBtn}
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  </div>
+
+                  <AnimatePresence>
+                    {extractMutation.isError && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="bg-red-500/5 border border-red-500/20 p-3 rounded-xl flex items-start gap-3">
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
+                          <div>
+                            <h4 className="font-semibold text-sm text-red-400">{t.extractionFailed}</h4>
+                            <p className="text-xs text-white/50 mt-1">
+                              {(extractMutation.error as any)?.response?.data?.error || extractMutation.error.message || t.errorGeneric}
+                            </p>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <AnimatePresence mode="wait">
+                    {extractMutation.isSuccess && extractMutation.data && (
+                      <VideoCard
+                        key={extractMutation.data.title}
+                        info={extractMutation.data}
+                        url={url}
+                        onDownload={handleDownload}
+                        t={t}
+                      />
+                    )}
+                  </AnimatePresence>
+
+                  <HistoryCard downloads={downloads} onClear={clearHistory} t={t} />
                 </div>
-                <button
-                  type="submit"
-                  disabled={extractMutation.isPending || !url.trim()}
-                  className="px-5 py-2.5 bg-gradient-to-r from-cyan-500 to-violet-600 hover:from-cyan-400 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg font-bold text-sm transition-all flex items-center gap-2 shrink-0"
-                >
-                  {extractMutation.isPending ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      {t.extractingBtn}
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-4 h-4" />
-                      {t.extractBtn}
-                    </>
-                  )}
-                </button>
-              </form>
-            </div>
 
-            <AnimatePresence>
-              {extractMutation.isError && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="bg-red-500/5 border border-red-500/20 p-3 rounded-xl flex items-start gap-3">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-400" />
-                    <div>
-                      <h4 className="font-semibold text-sm text-red-400">{t.extractionFailed}</h4>
-                      <p className="text-xs text-white/50 mt-1">
-                        {(extractMutation.error as any)?.response?.data?.error || extractMutation.error.message || t.errorGeneric}
-                      </p>
+                <div className="space-y-4 lg:block hidden">
+                  <div className="bg-[#12121a] rounded-xl border border-white/5 p-4">
+                    <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">{t.supportedPlatforms}</h3>
+                    <div className="space-y-1.5">
+                      {platforms.map((p, i) => (
+                        <div key={i} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-white/5 transition-colors cursor-default">
+                          <p.icon className={cn("w-4 h-4", p.color)} />
+                          <span className="text-sm font-medium text-white/70">{p.name}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
 
-            <AnimatePresence mode="wait">
-              {extractMutation.isSuccess && extractMutation.data && (
-                <VideoCard
-                  key={extractMutation.data.title}
-                  info={extractMutation.data}
-                  url={url}
-                  onDownload={handleDownload}
+                  <div className="bg-[#12121a] rounded-xl border border-white/5 p-4">
+                    <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">Features</h3>
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-2.5">
+                        <Shield className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-white/80">{t.watermarkFree}</p>
+                          <p className="text-xs text-white/30 mt-0.5">TikTok, Douyin, Instagram</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2.5">
+                        <Zap className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-white/80">{t.fast}</p>
+                          <p className="text-xs text-white/30 mt-0.5">4K, 1080p, 720p</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2.5">
+                        <Globe className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-sm font-medium text-white/80">{t.multiPlatform}</p>
+                          <p className="text-xs text-white/30 mt-0.5">10+ {t.platforms.toLowerCase()}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="library"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              transition={{ duration: 0.15 }}
+            >
+              <div className="max-w-3xl mx-auto">
+                <div className="mb-4">
+                  <p className="text-xs text-white/40">{t.libraryDesc}</p>
+                </div>
+                <LibraryCard
+                  items={library.items}
+                  loading={library.loading}
+                  onRefresh={library.refresh}
+                  onSaveToDevice={handleSaveToDevice}
+                  onRemove={library.removeItem}
+                  onClearAll={library.clearAll}
                   t={t}
                 />
-              )}
-            </AnimatePresence>
-
-            <LibraryCard
-              items={library.items}
-              loading={library.loading}
-              onRefresh={library.refresh}
-              onSaveToDevice={handleSaveToDevice}
-              onRemove={library.removeItem}
-              onClearAll={library.clearAll}
-              t={t}
-            />
-
-            <HistoryCard downloads={downloads} onClear={clearHistory} t={t} />
-          </div>
-
-          <div className="space-y-4 lg:block hidden">
-            <div className="bg-[#12121a] rounded-xl border border-white/5 p-4">
-              <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">{t.supportedPlatforms}</h3>
-              <div className="space-y-1.5">
-                {platforms.map((p, i) => (
-                  <div key={i} className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-white/5 transition-colors cursor-default">
-                    <p.icon className={cn("w-4 h-4", p.color)} />
-                    <span className="text-sm font-medium text-white/70">{p.name}</span>
-                  </div>
-                ))}
               </div>
-            </div>
-
-            <div className="bg-[#12121a] rounded-xl border border-white/5 p-4">
-              <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-3">Features</h3>
-              <div className="space-y-3">
-                <div className="flex items-start gap-2.5">
-                  <Shield className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-white/80">{t.watermarkFree}</p>
-                    <p className="text-xs text-white/30 mt-0.5">TikTok, Douyin, Instagram</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <Zap className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-white/80">{t.fast}</p>
-                    <p className="text-xs text-white/30 mt-0.5">4K, 1080p, 720p</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2.5">
-                  <Globe className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-white/80">{t.multiPlatform}</p>
-                    <p className="text-xs text-white/30 mt-0.5">10+ {t.platforms.toLowerCase()}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </main>
     </div>
   );
