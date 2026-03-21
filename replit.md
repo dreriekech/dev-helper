@@ -133,6 +133,22 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
   - Applied before subtitle filters in the ffmpeg filter chain
   - Frontend toggle: "Che text gốc trên video" with position buttons + height slider
 
+### AI Video Analysis (Gemini)
+- `POST /api/video/analyze` — Analyze video content using Gemini 2.5 Flash (requires API key)
+- Body: `{ fileId, lang }` — lang can be "vi" or "en"
+- Sends video to Gemini with inline data (base64); compresses to 480p/10fps/60s if >7MB
+- Returns: analysis text covering content, scenes, audio, quality, audience, hashtags
+- Uses Replit AI Integrations (no separate API key needed): `AI_INTEGRATIONS_GEMINI_BASE_URL`, `AI_INTEGRATIONS_GEMINI_API_KEY`
+
+### AI Review Script Generation (GPT-4o)
+- `POST /api/video/generate-review` — Generate professional review/voiceover script (requires API key)
+- Body: `{ fileId, analysis?, transcript?, lang, style, platform }`
+- 5 style options: natural, professional, funny, enthusiastic, honest
+- 5 platform targets: TikTok, YouTube, Facebook, Instagram, Twitter/X
+- Returns: script, suggestedTitle, suggestedDescription, suggestedHashtags
+- Uses GPT-4o for script generation + GPT-4o-mini for title/description metadata
+- Uses Replit AI Integrations: `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY`
+
 ### Backend Logic
 - Uses `yt-dlp` as a subprocess for video extraction and downloading
 - Uses `ffmpeg` for video/audio merging, format conversion, and reup processing

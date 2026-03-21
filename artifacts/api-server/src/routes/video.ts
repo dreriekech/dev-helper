@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import os from "os";
 import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import {
   ExtractVideoInfoBody,
   ExtractVideoInfoResponse,
@@ -16,6 +17,11 @@ import {
 const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+});
+
+const gemini = new GoogleGenAI({
+  apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY || "dummy",
+  httpOptions: { baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL },
 });
 
 const router: IRouter = Router();
@@ -1612,6 +1618,200 @@ router.delete("/video/library", validateApiKey, (_req, res): void => {
     activeDownloads.delete(fileId);
   }
   res.json({ success: true });
+});
+
+router.post("/video/analyze", validateApiKey, async (req, res): Promise<void> => {
+  const { fileId, lang } = req.body || {};
+
+  if (!fileId) {
+    res.status(400).json({ error: "Missing fileId" });
+    return;
+  }
+
+  const source = activeDownloads.get(fileId);
+  if (!source || !fs.existsSync(source.filepath)) {
+    res.status(404).json({ error: "Source file not found" });
+    return;
+  }
+
+  const tempFiles: string[] = [];
+  try {
+    const stat = fs.statSync(source.filepath);
+    const MAX_SIZE = 7 * 1024 * 1024;
+    let videoPath = source.filepath;
+
+    if (stat.size > MAX_SIZE) {
+      const compressedPath = path.join(DOWNLOAD_DIR, `${randomUUID()}_compressed.mp4`);
+      await runFfmpeg(["-y", "-i", source.filepath, "-vf", "scale=480:-2", "-r", "10", "-t", "60", "-b:v", "200k", "-an", compressedPath]);
+      videoPath = compressedPath;
+      tempFiles.push(compressedPath);
+    }
+
+    const videoBuffer = fs.readFileSync(videoPath);
+    const base64Video = videoBuffer.toString("base64");
+
+    const isVi = lang !== "en";
+    const prompt = isVi
+      ? `Hãy phân tích chi tiết video này. Mô tả:
+1. Nội dung chính của video (đang làm gì, sản phẩm gì, chủ đề gì)
+2. Các cảnh quay chính và chuyển cảnh
+3. Âm thanh/lời nói trong video (nếu có)
+4. Đánh giá chất lượng video (ánh sáng, góc quay, bố cục)
+5. Đối tượng khán giả phù hợp
+6. Hashtag đề xuất (10 hashtag phổ biến)
+Trả lời bằng tiếng Việt, chi tiết và chuyên nghiệp.`
+      : `Analyze this video in detail. Describe:
+1. Main content (what's happening, products, topic)
+2. Key scenes and transitions
+3. Audio/speech content (if any)
+4. Video quality assessment (lighting, angles, composition)
+5. Target audience
+6. Suggested hashtags (10 popular hashtags)
+Respond in English, detailed and professional.`;
+
+    const response = await gemini.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{
+        role: "user",
+        parts: [
+          { inlineData: { mimeType: "video/mp4", data: base64Video } },
+          { text: prompt },
+        ],
+      }],
+    });
+
+    const analysis = response.text || "";
+    res.json({ success: true, analysis, title: source.title });
+  } catch (err: any) {
+    console.error("Video analysis failed:", err.message);
+    res.status(500).json({ error: "Video analysis failed" });
+  } finally {
+    for (const f of tempFiles) {
+      try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+    }
+  }
+});
+
+router.post("/video/generate-review", validateApiKey, async (req, res): Promise<void> => {
+  const { fileId, analysis, transcript, lang, style, platform } = req.body || {};
+
+  if (!fileId) {
+    res.status(400).json({ error: "Missing fileId" });
+    return;
+  }
+
+  const source = activeDownloads.get(fileId);
+  if (!source) {
+    res.status(404).json({ error: "Source file not found" });
+    return;
+  }
+
+  const isVi = lang !== "en";
+  const platformName = platform || "TikTok";
+  const reviewStyle = style || "natural";
+
+  const styleGuides: Record<string, string> = isVi ? {
+    natural: "Giọng văn tự nhiên, gần gũi như đang kể chuyện cho bạn bè nghe",
+    professional: "Giọng văn chuyên nghiệp, đánh giá khách quan như một chuyên gia",
+    funny: "Giọng văn hài hước, dí dỏm, có những câu gây cười tự nhiên",
+    enthusiastic: "Giọng văn nhiệt tình, hào hứng, khiến người xem muốn thử ngay",
+    honest: "Giọng văn thật thà, thẳng thắn, nêu cả ưu và nhược điểm",
+  } : {
+    natural: "Natural, conversational tone like talking to a friend",
+    professional: "Professional, objective assessment like an expert",
+    funny: "Humorous, witty with natural comedy",
+    enthusiastic: "Enthusiastic, exciting, makes viewers want to try immediately",
+    honest: "Honest, straightforward, mentioning both pros and cons",
+  };
+
+  const styleGuide = styleGuides[reviewStyle] || styleGuides.natural;
+
+  const systemPrompt = isVi
+    ? `Bạn là một content creator chuyên nghiệp trên ${platformName}. Nhiệm vụ: viết kịch bản review/voiceover cho video.
+
+PHONG CÁCH: ${styleGuide}
+
+QUY TẮC:
+- Viết kịch bản voiceover (người đọc sẽ đọc lên video)
+- Mỗi đoạn tương ứng 3-5 giây video
+- Tổng kịch bản 30-60 giây (phù hợp ${platformName})
+- Dùng ngôn ngữ ${platformName} (gen Z nếu TikTok, chuyên nghiệp nếu YouTube)
+- KHÔNG dùng emoji trong kịch bản
+- Viết tự nhiên, không robot
+- Thêm hook mở đầu hấp dẫn
+- Kết thúc bằng call-to-action
+
+FORMAT: Trả về kịch bản dạng:
+[HOOK] Câu mở đầu gây chú ý
+[BODY] Nội dung review chi tiết
+[CTA] Lời kêu gọi hành động`
+    : `You are a professional ${platformName} content creator. Task: write a review/voiceover script for this video.
+
+STYLE: ${styleGuide}
+
+RULES:
+- Write voiceover script (to be read over the video)
+- Each section = 3-5 seconds of video
+- Total script 30-60 seconds (suitable for ${platformName})
+- Use ${platformName} language style
+- NO emojis in script
+- Natural, not robotic
+- Add a catchy opening hook
+- End with call-to-action
+
+FORMAT: Return script as:
+[HOOK] Attention-grabbing opener
+[BODY] Detailed review content
+[CTA] Call to action`;
+
+  let contextInfo = `Video title: ${source.title}\n`;
+  if (analysis) contextInfo += `Video analysis:\n${analysis}\n`;
+  if (transcript) contextInfo += `Video transcript:\n${transcript}\n`;
+
+  try {
+    const chatRes = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: contextInfo + (isVi ? "\nHãy viết kịch bản review cho video này:" : "\nWrite a review script for this video:") },
+      ],
+      temperature: 0.8,
+    });
+
+    const script = chatRes.choices[0]?.message?.content || "";
+
+    const titleRes = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: isVi
+            ? `Viết tiêu đề video ${platformName} hấp dẫn (tối đa 100 ký tự) và mô tả ngắn (tối đa 200 ký tự) dựa trên kịch bản review. Trả về JSON: {"title": "...", "description": "...", "hashtags": ["tag1", "tag2", ...]}`
+            : `Write a catchy ${platformName} video title (max 100 chars) and short description (max 200 chars) based on the review script. Return JSON: {"title": "...", "description": "...", "hashtags": ["tag1", "tag2", ...]}`,
+        },
+        { role: "user", content: script },
+      ],
+      temperature: 0.7,
+    });
+
+    let metadata: { title?: string; description?: string; hashtags?: string[] } = {};
+    try {
+      const raw = titleRes.choices[0]?.message?.content || "";
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) metadata = JSON.parse(jsonMatch[0]);
+    } catch {}
+
+    res.json({
+      success: true,
+      script,
+      suggestedTitle: metadata.title || "",
+      suggestedDescription: metadata.description || "",
+      suggestedHashtags: metadata.hashtags || [],
+    });
+  } catch (err: any) {
+    console.error("Generate review failed:", err.message);
+    res.status(500).json({ error: "Review generation failed" });
+  }
 });
 
 export default router;

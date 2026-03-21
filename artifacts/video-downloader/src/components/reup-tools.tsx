@@ -210,6 +210,17 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
   const [selectedVoice, setSelectedVoice] = useState("");
   const [voicesLoaded, setVoicesLoaded] = useState(false);
   const [voiceFromSubtitles, setVoiceFromSubtitles] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<string>("");
+  const [reviewGenerating, setReviewGenerating] = useState(false);
+  const [reviewResult, setReviewResult] = useState<{
+    script: string;
+    suggestedTitle: string;
+    suggestedDescription: string;
+    suggestedHashtags: string[];
+  } | null>(null);
+  const [reviewStyle, setReviewStyle] = useState<string>("natural");
+  const [reviewPlatform, setReviewPlatform] = useState<string>("TikTok");
 
   const selectedItem = libraryItems.find((i) => i.fileId === selectedFileId);
 
@@ -378,6 +389,70 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
     }
   };
 
+  const handleAnalyzeVideo = async () => {
+    if (!selectedFileId || analyzing) return;
+    setAnalyzing(true);
+    setAnalysisResult("");
+
+    try {
+      const res = await fetch("/api/video/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+        body: JSON.stringify({ fileId: selectedFileId, lang }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAnalysisResult(data.analysis || "");
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setResult({ success: false, message: data.error || t.reupFailed });
+      }
+    } catch {
+      setResult({ success: false, message: t.reupFailed });
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleGenerateReview = async () => {
+    if (!selectedFileId || reviewGenerating) return;
+    setReviewGenerating(true);
+    setReviewResult(null);
+
+    try {
+      const res = await fetch("/api/video/generate-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+        body: JSON.stringify({
+          fileId: selectedFileId,
+          analysis: analysisResult || undefined,
+          transcript: transcribeResult?.originalText || undefined,
+          lang,
+          style: reviewStyle,
+          platform: reviewPlatform,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setReviewResult({
+          script: data.script || "",
+          suggestedTitle: data.suggestedTitle || "",
+          suggestedDescription: data.suggestedDescription || "",
+          suggestedHashtags: data.suggestedHashtags || [],
+        });
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setResult({ success: false, message: data.error || t.reupFailed });
+      }
+    } catch {
+      setResult({ success: false, message: t.reupFailed });
+    } finally {
+      setReviewGenerating(false);
+    }
+  };
+
   const handleSmartReup = async () => {
     if (!selectedFileId || processing) return;
     setProcessing(true);
@@ -542,7 +617,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                   {libraryItems.map((item) => (
                     <button
                       key={item.fileId}
-                      onClick={() => { setSelectedFileId(item.fileId); setShowDropdown(false); setResult(null); setTranscribeResult(null); setAiResult(null); setSceneResult(null); generatePreview(platform); }}
+                      onClick={() => { setSelectedFileId(item.fileId); setShowDropdown(false); setResult(null); setTranscribeResult(null); setAiResult(null); setSceneResult(null); setAnalysisResult(""); setReviewResult(null); generatePreview(platform); }}
                       className={cn(
                         "w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 transition-colors text-left",
                         item.fileId === selectedFileId && "bg-cyan-500/10"
@@ -951,6 +1026,180 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                   </div>
                 )}
               </div>
+            </div>
+
+            <div className="bg-[#12121a] rounded-xl border border-white/5 p-4 space-y-3">
+              <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center gap-1.5">
+                <ScanSearch className="w-3.5 h-3.5 text-emerald-400" />
+                {t.reupAnalyze}
+              </h3>
+              <p className="text-[9px] text-white/30">{t.reupAnalyzeDesc}</p>
+
+              <button
+                onClick={handleAnalyzeVideo}
+                disabled={analyzing}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
+              >
+                {analyzing ? (
+                  <>
+                    <span className="w-3 h-3 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                    {t.reupAnalyzing}
+                  </>
+                ) : (
+                  <>
+                    <ScanSearch className="w-3 h-3" />
+                    {t.reupAnalyzeBtn}
+                  </>
+                )}
+              </button>
+
+              <AnimatePresence>
+                {analysisResult && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-[#0a0a10] rounded-lg border border-emerald-500/10 p-3 space-y-2"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle className="w-3 h-3 text-emerald-400" />
+                        <span className="text-[10px] text-emerald-400 font-bold">{t.reupAnalyzeDone}</span>
+                      </div>
+                      <button onClick={() => copyToClipboard(analysisResult, "analysis")} className="text-[9px] text-cyan-400/60 hover:text-cyan-400 flex items-center gap-0.5">
+                        <Copy className="w-2.5 h-2.5" />
+                        {copiedField === "analysis" ? t.reupCopied : "Copy"}
+                      </button>
+                    </div>
+                    <div className="text-[11px] text-white/60 leading-relaxed whitespace-pre-wrap max-h-60 overflow-y-auto scrollbar-thin">{analysisResult}</div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            <div className="bg-[#12121a] rounded-xl border border-white/5 p-4 space-y-3">
+              <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-pink-400" />
+                {t.reupReviewScript}
+              </h3>
+              <p className="text-[9px] text-white/30">{t.reupReviewScriptDesc}</p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[9px] text-white/30 uppercase mb-1 block">{t.reupReviewStyle}</label>
+                  <select
+                    value={reviewStyle}
+                    onChange={(e) => setReviewStyle(e.target.value)}
+                    className="w-full bg-[#0a0a10] rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/60 outline-none cursor-pointer"
+                  >
+                    <option value="natural">{t.reupStyleNatural}</option>
+                    <option value="professional">{t.reupStyleProfessional}</option>
+                    <option value="funny">{t.reupStyleFunny}</option>
+                    <option value="enthusiastic">{t.reupStyleEnthusiastic}</option>
+                    <option value="honest">{t.reupStyleHonest}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[9px] text-white/30 uppercase mb-1 block">{t.reupReviewPlatform}</label>
+                  <select
+                    value={reviewPlatform}
+                    onChange={(e) => setReviewPlatform(e.target.value)}
+                    className="w-full bg-[#0a0a10] rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/60 outline-none cursor-pointer"
+                  >
+                    <option value="TikTok">TikTok</option>
+                    <option value="YouTube">YouTube</option>
+                    <option value="Facebook">Facebook</option>
+                    <option value="Instagram">Instagram</option>
+                    <option value="Twitter">Twitter/X</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                onClick={handleGenerateReview}
+                disabled={reviewGenerating}
+                className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-pink-500/10 text-pink-400 hover:bg-pink-500/20 border border-pink-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
+              >
+                {reviewGenerating ? (
+                  <>
+                    <span className="w-3 h-3 border-2 border-pink-400/30 border-t-pink-400 rounded-full animate-spin" />
+                    {t.reupGeneratingReview}
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3 h-3" />
+                    {t.reupReviewBtn}
+                  </>
+                )}
+              </button>
+
+              <AnimatePresence>
+                {reviewResult && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-[#0a0a10] rounded-lg border border-pink-500/10 p-3 space-y-3"
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <CheckCircle className="w-3 h-3 text-pink-400" />
+                      <span className="text-[10px] text-pink-400 font-bold">{t.reupReviewDone}</span>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[9px] text-white/30 uppercase">{t.reupReviewResult}</span>
+                        <button onClick={() => copyToClipboard(reviewResult.script, "script")} className="text-[9px] text-cyan-400/60 hover:text-cyan-400 flex items-center gap-0.5">
+                          <Copy className="w-2.5 h-2.5" />
+                          {copiedField === "script" ? t.reupCopied : t.reupCopyScript}
+                        </button>
+                      </div>
+                      <div className="text-[11px] text-white/70 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto scrollbar-thin">{reviewResult.script}</div>
+                    </div>
+
+                    {reviewResult.suggestedTitle && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[9px] text-white/30 uppercase">{t.reupSuggestedTitle}</span>
+                          <button onClick={() => copyToClipboard(reviewResult.suggestedTitle, "reviewTitle")} className="text-[9px] text-cyan-400/60 hover:text-cyan-400 flex items-center gap-0.5">
+                            <Copy className="w-2.5 h-2.5" />
+                            {copiedField === "reviewTitle" ? t.reupCopied : t.reupCopyTitle}
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-amber-400/80 font-medium">{reviewResult.suggestedTitle}</p>
+                      </div>
+                    )}
+
+                    {reviewResult.suggestedDescription && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[9px] text-white/30 uppercase">{t.reupSuggestedDesc}</span>
+                          <button onClick={() => copyToClipboard(reviewResult.suggestedDescription, "reviewDesc")} className="text-[9px] text-cyan-400/60 hover:text-cyan-400 flex items-center gap-0.5">
+                            <Copy className="w-2.5 h-2.5" />
+                            {copiedField === "reviewDesc" ? t.reupCopied : t.reupCopyDescription}
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-white/60 leading-relaxed">{reviewResult.suggestedDescription}</p>
+                      </div>
+                    )}
+
+                    {reviewResult.suggestedHashtags.length > 0 && (
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[9px] text-white/30 uppercase">{t.reupSuggestedTags}</span>
+                          <button onClick={() => copyToClipboard(reviewResult.suggestedHashtags.join(" "), "reviewTags")} className="text-[9px] text-cyan-400/60 hover:text-cyan-400 flex items-center gap-0.5">
+                            <Copy className="w-2.5 h-2.5" />
+                            {copiedField === "reviewTags" ? t.reupCopied : t.reupCopyHashtags}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {reviewResult.suggestedHashtags.map((tag, i) => (
+                            <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-400/80">{tag}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </>
           )}
