@@ -621,53 +621,68 @@ router.post("/video/transcribe", validateApiKey, async (req, res): Promise<void>
   const audioPath = path.join(DOWNLOAD_DIR, `${randomUUID()}.mp3`);
 
   try {
-    await runFfmpeg(["-y", "-i", source.filepath, "-vn", "-acodec", "libmp3lame", "-b:a", "64k", "-ar", "16000", "-ac", "1", audioPath]);
+    await runFfmpeg(["-y", "-i", source.filepath, "-vn", "-acodec", "libmp3lame", "-b:a", "128k", "-ar", "16000", "-ac", "1", audioPath]);
 
     const audioFile = fs.createReadStream(audioPath);
     const transcription = await openai.audio.transcriptions.create({
-      model: "gpt-4o-mini-transcribe",
+      model: "whisper-1",
       file: audioFile,
-      response_format: "json",
+      response_format: "verbose_json",
+      timestamp_granularities: ["segment"],
     });
 
+    const segments: Array<{ start: number; end: number; text: string }> = ((transcription as any).segments || []).map((s: any) => ({
+      start: s.start,
+      end: s.end,
+      text: (s.text || "").trim(),
+    }));
     const originalText = (transcription as any).text || "";
+    const detectedLang = (transcription as any).language || "unknown";
 
-    let durationStr = "";
-    try {
-      durationStr = await new Promise<string>((resolve, reject) => {
-        const proc = spawn("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", source.filepath], { timeout: 30000 });
-        let out = "";
-        proc.stdout.on("data", (d: Buffer) => { out += d.toString(); });
-        proc.on("close", (code) => code === 0 ? resolve(out.trim()) : reject(new Error("ffprobe failed")));
-        proc.on("error", reject);
+    const formatSrtTime = (s: number) => {
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = Math.floor(s % 60);
+      const ms = Math.round((s % 1) * 1000);
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+    };
+
+    let finalSegments = segments;
+    let translatedText = "";
+
+    if (targetLang && segments.length > 0) {
+      const langNames: Record<string, string> = { vi: "Vietnamese", en: "English" };
+      const targetName = langNames[targetLang] || targetLang;
+
+      const segTexts = segments.map((s, i) => `[${i}] ${s.text}`).join("\n");
+      const chatRes = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a professional translator. Translate each numbered line to ${targetName}. Keep the [number] prefix exactly. Return ONLY the translated lines, one per line. Keep translations natural and concise for video subtitles.`
+          },
+          { role: "user", content: segTexts }
+        ],
+        temperature: 0.3,
       });
-    } catch {}
-    const duration = parseFloat(durationStr) || 60;
 
-    const langNames: Record<string, string> = { vi: "Vietnamese", en: "English" };
-    const targetName = targetLang ? (langNames[targetLang] || targetLang) : "";
+      const translated = chatRes.choices[0]?.message?.content || "";
+      const lines = translated.split("\n").filter(Boolean);
 
-    const chatRes = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `You are a professional subtitle creator. Given a transcription of a ${duration.toFixed(1)}-second video, create timed subtitles in SRT format.${targetLang ? ` Translate the content to ${targetName}.` : " Keep the original language."}
+      finalSegments = segments.map((seg, i) => {
+        const line = lines.find((l) => l.startsWith(`[${i}]`));
+        const cleanText = line ? line.replace(/^\[\d+\]\s*/, "").trim() : seg.text;
+        return { start: seg.start, end: seg.end, text: cleanText };
+      });
 
-Rules:
-- Each subtitle should be 1-2 short sentences (max ~10 words per line)
-- Distribute timestamps evenly across the video duration (0 to ${duration.toFixed(1)} seconds)
-- Return ONLY valid SRT format, nothing else
-- Format: index\\nHH:MM:SS,mmm --> HH:MM:SS,mmm\\ntext\\n\\n`
-        },
-        { role: "user", content: originalText }
-      ],
-      temperature: 0.3,
+      translatedText = finalSegments.map((s) => s.text).join(" ");
+    }
+
+    let srtContent = "";
+    finalSegments.forEach((seg, i) => {
+      srtContent += `${i + 1}\n${formatSrtTime(seg.start)} --> ${formatSrtTime(seg.end)}\n${seg.text}\n\n`;
     });
-
-    const srtContent = chatRes.choices[0]?.message?.content?.trim() || "";
-    const detectedLang = targetLang ? "auto" : "original";
-    const translatedText = targetLang ? srtContent.replace(/\d+\n[\d:,\s\->]+\n/g, "").replace(/\n\n/g, " ").trim() : originalText;
 
     try { fs.unlinkSync(audioPath); } catch {}
 
@@ -676,7 +691,7 @@ Rules:
       detectedLang,
       translatedText: translatedText || originalText,
       srtContent,
-      segments: [],
+      segments: finalSegments,
     });
   } catch (err: any) {
     try { fs.unlinkSync(audioPath); } catch {}
