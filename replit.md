@@ -39,12 +39,21 @@ artifacts-monorepo/
 └── package.json            # Root package with hoisted devDeps
 ```
 
+## Authentication
+
+- API key authentication required for extract/download endpoints
+- Valid keys stored in `VALID_API_KEYS` environment variable (comma-separated)
+- Frontend sends key via `x-api-key` header (injected by custom-fetch `setApiKey()`)
+- Key stored in `localStorage` under `vd_api_key`
+- Key screen shown on first visit; user can change key via logout button in header
+
 ## Video Download API
 
 ### Endpoints
-- `POST /api/video/extract` — Extract video metadata and available formats from a URL
-- `POST /api/video/download` — Download a video with specified quality, returns stream URL
-- `GET /api/video/stream/:fileId` — Stream a downloaded video file
+- `POST /api/video/validate-key` — Validate an API key (no auth required)
+- `POST /api/video/extract` — Extract video metadata and available formats from a URL (requires API key)
+- `POST /api/video/download` — Download a video with specified quality, returns stream URL (requires API key)
+- `GET /api/video/stream/:fileId` — Stream a downloaded video file (uses temporary UUID, no key needed)
 
 ### Supported Platforms
 YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bilibili, Pinterest, Reddit, Twitch, Snapchat, LinkedIn, Threads

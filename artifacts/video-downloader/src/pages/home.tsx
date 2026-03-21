@@ -1,12 +1,14 @@
-import { useState } from "react";
-import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, ChevronDown, Clipboard, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, Clipboard, X, Key, LogOut, Infinity } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useExtractVideoInfo, useDownloadVideo, type VideoFormat } from "@workspace/api-client-react";
+import { useExtractVideoInfo, useDownloadVideo, setApiKey, type VideoFormat } from "@workspace/api-client-react";
 import { VideoCard } from "@/components/video-card";
 import { HistoryCard } from "@/components/history-card";
 import { useRecentDownloads } from "@/hooks/use-recent-downloads";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+
+const KEY_STORAGE = "vd_api_key";
 
 const platforms = [
   { icon: Youtube, name: "YouTube", color: "text-red-500" },
@@ -19,13 +21,188 @@ const platforms = [
   { icon: Video, name: "Bilibili", color: "text-cyan-300" },
 ];
 
+function LangToggle({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
+  return (
+    <div className="flex items-center bg-white/5 rounded-md border border-white/10 overflow-hidden">
+      <button
+        onClick={() => setLang("vi")}
+        className={cn(
+          "px-2.5 py-1 text-xs font-semibold transition-all",
+          lang === "vi" ? "bg-cyan-500/20 text-cyan-400" : "text-white/40 hover:text-white/70"
+        )}
+      >
+        VN
+      </button>
+      <div className="w-px h-4 bg-white/10" />
+      <button
+        onClick={() => setLang("en")}
+        className={cn(
+          "px-2.5 py-1 text-xs font-semibold transition-all",
+          lang === "en" ? "bg-cyan-500/20 text-cyan-400" : "text-white/40 hover:text-white/70"
+        )}
+      >
+        EN
+      </button>
+    </div>
+  );
+}
+
+function KeyScreen({ onAuth, lang, setLang, t }: {
+  onAuth: (key: string) => void;
+  lang: Lang;
+  setLang: (l: Lang) => void;
+  t: ReturnType<typeof useLang>["t"];
+}) {
+  const [keyInput, setKeyInput] = useState("");
+  const [validating, setValidating] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!keyInput.trim()) return;
+
+    setValidating(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/video/validate-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: keyInput.trim() }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.valid) {
+          onAuth(keyInput.trim());
+          return;
+        }
+      }
+      setError(t.keyInvalid);
+    } catch {
+      setError(t.keyInvalid);
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col">
+      <header className="border-b border-white/5 bg-[#0e0e16]/80 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center">
+              <Download className="w-3.5 h-3.5 text-white" />
+            </div>
+            <span className="font-bold text-sm tracking-tight">VidTool</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/20">v1.0</span>
+          </div>
+          <LangToggle lang={lang} setLang={setLang} />
+        </div>
+      </header>
+
+      <div className="flex-1 flex items-center justify-center px-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-sm"
+        >
+          <div className="bg-[#12121a] rounded-xl border border-white/5 p-6">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/20 to-violet-600/20 border border-white/10 flex items-center justify-center">
+                <Key className="w-6 h-6 text-cyan-400" />
+              </div>
+            </div>
+
+            <h2 className="text-base font-bold text-center mb-1">{t.keyTitle}</h2>
+            <p className="text-xs text-white/40 text-center mb-5">{t.keyDesc}</p>
+
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <input
+                type="text"
+                value={keyInput}
+                onChange={(e) => { setKeyInput(e.target.value); setError(""); }}
+                placeholder={t.keyPlaceholder}
+                className="w-full bg-[#0a0a10] rounded-lg border border-white/10 focus:border-cyan-500/40 transition-colors px-3 py-2.5 text-sm placeholder:text-white/20 font-mono outline-none"
+                autoFocus
+              />
+
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 px-3 py-2 rounded-lg"
+                >
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  {error}
+                </motion.div>
+              )}
+
+              <button
+                type="submit"
+                disabled={validating || !keyInput.trim()}
+                className="w-full px-4 py-2.5 bg-gradient-to-r from-cyan-500 to-violet-600 hover:from-cyan-400 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg font-bold text-sm transition-all flex items-center justify-center gap-2"
+              >
+                {validating ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    {t.keyValidating}
+                  </>
+                ) : (
+                  <>
+                    <Key className="w-4 h-4" />
+                    {t.keySubmit}
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
+  const [apiKeyValue, setApiKeyValue] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(KEY_STORAGE);
+    } catch {
+      return null;
+    }
+  });
   const [url, setUrl] = useState("");
   const { downloads, addDownload, clearHistory } = useRecentDownloads();
   const { lang, setLang, t } = useLang();
 
+  useEffect(() => {
+    if (apiKeyValue) {
+      setApiKey(apiKeyValue);
+    }
+  }, [apiKeyValue]);
+
   const extractMutation = useExtractVideoInfo();
   const downloadMutation = useDownloadVideo();
+
+  const handleAuth = (key: string) => {
+    setApiKeyValue(key);
+    setApiKey(key);
+    try {
+      localStorage.setItem(KEY_STORAGE, key);
+    } catch {}
+  };
+
+  const handleLogout = () => {
+    setApiKeyValue(null);
+    setApiKey(null);
+    try {
+      localStorage.removeItem(KEY_STORAGE);
+    } catch {}
+  };
+
+  if (!apiKeyValue) {
+    return <KeyScreen onAuth={handleAuth} lang={lang} setLang={setLang} t={t} />;
+  }
 
   const handleExtract = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -36,9 +213,7 @@ export default function Home() {
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      if (text) {
-        setUrl(text);
-      }
+      if (text) setUrl(text);
     } catch {}
   };
 
@@ -70,11 +245,12 @@ export default function Home() {
         quality: format.quality,
         url: url.trim()
       });
-
     } catch {
       alert(t.downloadFailed);
     }
   };
+
+  const maskedKey = apiKeyValue.slice(0, 3) + "•".repeat(Math.max(0, apiKeyValue.length - 7)) + apiKeyValue.slice(-4);
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white">
@@ -89,7 +265,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 text-xs">
+            <div className="flex items-center gap-1.5 text-xs">
               <div className={cn("flex items-center gap-1", extractMutation.isPending ? "text-amber-400" : "text-emerald-400")}>
                 <span className="relative flex h-1.5 w-1.5">
                   {extractMutation.isPending && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />}
@@ -101,27 +277,21 @@ export default function Home() {
 
             <div className="h-4 w-px bg-white/10" />
 
-            <div className="flex items-center bg-white/5 rounded-md border border-white/10 overflow-hidden">
-              <button
-                onClick={() => setLang("vi")}
-                className={cn(
-                  "px-2.5 py-1 text-xs font-semibold transition-all",
-                  lang === "vi" ? "bg-cyan-500/20 text-cyan-400" : "text-white/40 hover:text-white/70"
-                )}
-              >
-                VN
-              </button>
-              <div className="w-px h-4 bg-white/10" />
-              <button
-                onClick={() => setLang("en")}
-                className={cn(
-                  "px-2.5 py-1 text-xs font-semibold transition-all",
-                  lang === "en" ? "bg-cyan-500/20 text-cyan-400" : "text-white/40 hover:text-white/70"
-                )}
-              >
-                EN
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/5 border border-white/10 text-xs">
+              <Key className="w-3 h-3 text-cyan-400" />
+              <span className="text-white/40 font-mono text-[10px]">{maskedKey}</span>
+              <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[9px] font-bold">
+                <Infinity className="w-2.5 h-2.5" />
+                {t.keyUnlimited}
+              </div>
+              <button onClick={handleLogout} className="ml-1 text-white/20 hover:text-red-400 transition-colors" title={t.keyLogout}>
+                <LogOut className="w-3 h-3" />
               </button>
             </div>
+
+            <div className="h-4 w-px bg-white/10" />
+
+            <LangToggle lang={lang} setLang={setLang} />
           </div>
         </div>
       </header>

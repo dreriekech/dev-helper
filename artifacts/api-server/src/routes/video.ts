@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import path from "path";
@@ -13,6 +13,26 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+const VALID_KEYS = (process.env.VALID_API_KEYS || "").split(",").map((k) => k.trim()).filter(Boolean);
+
+function validateApiKey(req: Request, res: Response, next: NextFunction): void {
+  const apiKey = req.headers["x-api-key"] as string | undefined;
+  if (!apiKey || !VALID_KEYS.includes(apiKey)) {
+    res.status(401).json({ error: "Invalid or missing API key" });
+    return;
+  }
+  next();
+}
+
+router.post("/video/validate-key", (req, res): void => {
+  const { apiKey } = req.body || {};
+  if (!apiKey || !VALID_KEYS.includes(apiKey)) {
+    res.status(401).json({ valid: false, error: "Invalid API key" });
+    return;
+  }
+  res.json({ valid: true });
+});
 
 const DOWNLOAD_DIR = path.join(os.tmpdir(), "video-downloads");
 
@@ -85,7 +105,7 @@ function runYtDlp(args: string[]): Promise<string> {
   });
 }
 
-router.post("/video/extract", async (req, res): Promise<void> => {
+router.post("/video/extract", validateApiKey, async (req, res): Promise<void> => {
   const parsed = ExtractVideoInfoBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -178,7 +198,7 @@ router.post("/video/extract", async (req, res): Promise<void> => {
   }
 });
 
-router.post("/video/download", async (req, res): Promise<void> => {
+router.post("/video/download", validateApiKey, async (req, res): Promise<void> => {
   const parsed = DownloadVideoBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });

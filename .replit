@@ -28,3 +28,8 @@ timeoutMs = 20000
 [nix]
 channel = "stable-25_05"
 packages = ["yt-dlp", "ffmpeg"]
+
+[userenv]
+
+[userenv.shared]
+VALID_API_KEYS = "HA7-A9F3-K8L2-P0QW"

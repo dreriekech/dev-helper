@@ -17,6 +17,11 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _apiKey: string | null = null;
+
+export function setApiKey(key: string | null): void {
+  _apiKey = key;
+}
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -346,8 +351,10 @@ export async function customFetch<T = unknown>(
     headers.set("accept", DEFAULT_JSON_ACCEPT);
   }
 
-  // Attach bearer token when an auth getter is configured and no
-  // Authorization header has been explicitly provided.
+  if (_apiKey && !headers.has("x-api-key")) {
+    headers.set("x-api-key", _apiKey);
+  }
+
   if (_authTokenGetter && !headers.has("authorization")) {
     const token = await _authTokenGetter();
     if (token) {
