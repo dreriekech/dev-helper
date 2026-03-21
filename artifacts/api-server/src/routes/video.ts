@@ -20,8 +20,25 @@ const openai = new OpenAI({
 
 const router: IRouter = Router();
 
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.3.0";
 const APP_CHANGELOG: Record<string, { date: string; changes_vi: string[]; changes_en: string[] }> = {
+  "1.3.0": {
+    date: "2026-03-21",
+    changes_vi: [
+      "Sửa lỗi phụ đề tràn viền trên video dọc/hẹp",
+      "Font size tự co giãn theo kích thước video",
+      "Tăng margin trái/phải cho phụ đề SRT & ASS",
+      "Thêm tính năng Che text gốc với drawbox overlay",
+      "Chọn vị trí phủ (trên/dưới/cả hai) & chiều cao %",
+    ],
+    changes_en: [
+      "Fixed subtitle text overflow on portrait/narrow videos",
+      "Dynamic font scaling based on video dimensions",
+      "Increased SRT & ASS subtitle left/right margins",
+      "Added Cover Original Text with drawbox overlay",
+      "Choose cover position (top/bottom/both) & height %",
+    ],
+  },
   "1.2.0": {
     date: "2026-03-21",
     changes_vi: [
@@ -536,6 +553,25 @@ function sanitizeColor(color: unknown): string {
   return "black";
 }
 
+async function getVideoWidth(filepath: string): Promise<number> {
+  return new Promise((resolve) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=width",
+      "-of", "csv=p=0",
+      filepath,
+    ]);
+    let out = "";
+    proc.stdout.on("data", (d: Buffer) => { out += d.toString(); });
+    proc.on("close", () => {
+      const w = parseInt(out.trim(), 10);
+      resolve(isNaN(w) ? 1920 : w);
+    });
+    proc.on("error", () => resolve(1920));
+  });
+}
+
 router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
   const { fileId, options } = req.body || {};
 
@@ -558,6 +594,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
   const outputPath = path.join(DOWNLOAD_DIR, `${newFileId}${outputExt}`);
 
   try {
+    const videoWidth = isAudioOnly ? 1920 : await getVideoWidth(source.filepath);
     const videoFilters: string[] = [];
     const audioFilters: string[] = [];
 
@@ -655,6 +692,17 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     if (options.stripAudio === true && !isAudioOnly) {
     }
 
+    if (!isAudioOnly && options.coverOriginalText === true) {
+      const coverH = clamp(options.coverTextHeight, 5, 30, 15) / 100;
+      const coverPos = options.coverTextPosition || "bottom";
+      if (coverPos === "bottom" || coverPos === "both") {
+        videoFilters.push(`drawbox=x=0:y=ih*(1-${coverH}):w=iw:h=ih*${coverH}:color=black@0.92:t=fill`);
+      }
+      if (coverPos === "top" || coverPos === "both") {
+        videoFilters.push(`drawbox=x=0:y=0:w=iw:h=ih*${coverH}:color=black@0.92:t=fill`);
+      }
+    }
+
     if (!isAudioOnly && options.subtitleText && typeof options.subtitleText === "string") {
       const text = options.subtitleText.replace(/'/g, "'\\''").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
       const fontSize = clamp(options.subtitleFontSize, 8, 48, 14);
@@ -671,32 +719,38 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
         retro: `:fontcolor=yellow:borderw=3:bordercolor=black:shadowcolor=orange@0.8:shadowx=2:shadowy=2`,
       };
       const styleStr = drawStyleMap[textStyle] || drawStyleMap.classic;
-      const drawTextFilter = `drawtext=text='${text}':fontsize=${Math.round(fontSize)}:x=(w-text_w)/2:y=${yPos}${styleStr}`;
+      const dynamicFontSize = `'if(gt(${Math.round(fontSize)}\\,w/25)\\,w/25\\,${Math.round(fontSize)})'`;
+      const drawTextFilter = `drawtext=text='${text}':fontsize=${dynamicFontSize}:x=(w-text_w)/2:y=${yPos}${styleStr}`;
       videoFilters.push(drawTextFilter);
     }
 
     if (!isAudioOnly && options.srtContent && typeof options.srtContent === "string") {
       const srtPath = path.join(DOWNLOAD_DIR, `${newFileId}.srt`);
+      const baseFontSize = clamp(options.subtitleFontSize, 8, 48, 14);
+      const widthScale = Math.min(1, videoWidth / 1080);
+      const scaledFontSize = Math.max(8, Math.round(baseFontSize * widthScale));
+      const marginL = Math.max(10, Math.round(80 * widthScale));
+      const marginR = Math.max(10, Math.round(80 * widthScale));
+      const marginV = Math.max(15, Math.round(30 * widthScale));
 
       if (options.highlightKeywords && Array.isArray(options.highlightKeywords) && options.highlightKeywords.length > 0) {
-        const assContent = srtToAssWithHighlights(options.srtContent, options.highlightKeywords, options.subtitleStyle || "classic", clamp(options.subtitleFontSize, 8, 48, 14));
+        const assContent = srtToAssWithHighlights(options.srtContent, options.highlightKeywords, options.subtitleStyle || "classic", scaledFontSize);
         const assPath = path.join(DOWNLOAD_DIR, `${newFileId}.ass`);
         fs.writeFileSync(assPath, assContent, "utf-8");
         const escapedAssPath = assPath.replace(/:/g, "\\:").replace(/\\/g, "/");
         videoFilters.push(`ass=${escapedAssPath}`);
       } else {
         fs.writeFileSync(srtPath, options.srtContent, "utf-8");
-        const fontSize = clamp(options.subtitleFontSize, 8, 48, 14);
         const escapedSrtPath = srtPath.replace(/:/g, "\\:").replace(/\\/g, "/");
 
         const subtitleStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
         const styleMap: Record<string, string> = {
-          classic: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-          outline: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-          highlight: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-          shadow: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-          neon: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-          retro: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+          classic: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
+          outline: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
+          highlight: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
+          shadow: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
+          neon: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
+          retro: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
         };
         const forceStyle = styleMap[subtitleStyle] || styleMap.classic;
         videoFilters.push(`subtitles=${escapedSrtPath}:force_style='${forceStyle}'`);
@@ -794,8 +848,8 @@ WrapStyle: 2
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,${Math.round(fontSize)},${s.primary},&H000000FF,${s.outline},${s.back},1,0,0,0,100,100,0,0,1,${s.outlineW},${s.shadow},2,20,20,25,1
-Style: Highlight,Arial,${Math.round(fontSize)},&H0000D7FF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,20,20,25,1
+Style: Default,Arial,${Math.round(fontSize)},${s.primary},&H000000FF,${s.outline},${s.back},1,0,0,0,100,100,0,0,1,${s.outlineW},${s.shadow},2,120,120,40,1
+Style: Highlight,Arial,${Math.round(fontSize)},&H0000D7FF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,120,120,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

@@ -121,8 +121,17 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 - If server version > client `LOCAL_VERSION` constant, shows animated update banner below header
 - Banner shows changelog in current language (VN/EN), "Update now" (reload) and "Dismiss" buttons
 - Dismissed version saved to localStorage to avoid repeat prompts
-- Version badge (`v1.2.0`) shown in header next to Haxmax logo
+- Version badge (`v1.3.0`) shown in header next to Haxmax logo
 - To release a new version: update `APP_VERSION` + `APP_CHANGELOG` in `video.ts`, update `LOCAL_VERSION` in `home.tsx`
+
+### Subtitle Text Overflow Fix (v1.3.0)
+- **Dynamic font scaling for drawtext**: uses ffmpeg expression `if(gt(fontSize,w/25),w/25,fontSize)` to cap font size relative to video width
+- **Responsive SRT/ASS font sizing**: uses `ffprobe` to detect video width, scales font/margins proportionally (`widthScale = min(1, videoWidth / 1080)`)
+- **Wider margins**: SRT MarginL/R scaled from 80px base; ASS uses 120px in PlayRes 1920 space
+- **Cover Original Text overlay**: `drawbox` filter covers existing burned-in text before rendering new subtitles
+  - Options: position (top/bottom/both), height (5-30% of video)
+  - Applied before subtitle filters in the ffmpeg filter chain
+  - Frontend toggle: "Che text gốc trên video" with position buttons + height slider
 
 ### Backend Logic
 - Uses `yt-dlp` as a subprocess for video extraction and downloading

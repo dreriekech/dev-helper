@@ -34,6 +34,9 @@ interface ReupOptions {
   crf: number;
   colorGrading: { gamma: number; gammaR: number; gammaG: number; gammaB: number } | null;
   highlightKeywords: string[];
+  coverOriginalText: boolean;
+  coverTextPosition: "bottom" | "top" | "both";
+  coverTextHeight: number;
 }
 
 const subtitleStylePresets: { id: SubtitleStyle; label: string; labelEn: string; preview: string; desc: string; descEn: string }[] = [
@@ -72,6 +75,9 @@ const defaultOptions: ReupOptions = {
   crf: 23,
   colorGrading: null,
   highlightKeywords: [],
+  coverOriginalText: false,
+  coverTextPosition: "bottom",
+  coverTextHeight: 15,
 };
 
 type Platform = "tiktok" | "facebook" | "youtube" | "instagram" | "twitter";
@@ -401,6 +407,12 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
 
       smartOpts.stripAudio = options.stripAudio;
 
+      if (options.coverOriginalText) {
+        smartOpts.coverOriginalText = true;
+        smartOpts.coverTextPosition = options.coverTextPosition;
+        smartOpts.coverTextHeight = options.coverTextHeight;
+      }
+
       if (showAdvanced) {
         Object.assign(smartOpts, {
           subtitleText: options.subtitleText,
@@ -676,6 +688,54 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                   <p className="text-[8px] text-white/30">{t.reupStripAudioDesc}</p>
                 </div>
               </label>
+            </div>
+
+            <div className="bg-[#12121a] rounded-xl border border-white/5 p-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer" onClick={() => updateOption("coverOriginalText", !options.coverOriginalText)}>
+                <ToggleSwitch on={options.coverOriginalText} />
+                <div>
+                  <span className="text-[11px] font-semibold text-white/70 flex items-center gap-1">
+                    <Layers className="w-3 h-3 text-orange-400" />
+                    {lang === "vi" ? "Che text gốc trên video" : "Cover original text"}
+                  </span>
+                  <p className="text-[8px] text-white/30">{lang === "vi" ? "Tạo lớp phủ che text có sẵn trên video rồi đè text mới lên" : "Add overlay to cover existing text on video before adding new text"}</p>
+                </div>
+              </label>
+              {options.coverOriginalText && (
+                <div className="flex items-center gap-3 pl-8">
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-white/30">{lang === "vi" ? "Vị trí" : "Position"}</span>
+                    <div className="flex gap-1">
+                      {(["bottom", "top", "both"] as const).map((pos) => (
+                        <button
+                          key={pos}
+                          onClick={() => updateOption("coverTextPosition", pos)}
+                          className={cn(
+                            "px-2 py-1 rounded text-[9px] font-bold transition-all",
+                            options.coverTextPosition === pos
+                              ? "bg-orange-500/15 text-orange-400 border border-orange-500/30"
+                              : "bg-white/[0.02] text-white/40 border border-white/5 hover:bg-white/5"
+                          )}
+                        >
+                          {pos === "bottom" ? (lang === "vi" ? "Dưới" : "Bottom") : pos === "top" ? (lang === "vi" ? "Trên" : "Top") : (lang === "vi" ? "Cả hai" : "Both")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-1 flex-1">
+                    <span className="text-[9px] text-white/30">{lang === "vi" ? "Chiều cao phủ" : "Cover height"}: {options.coverTextHeight}%</span>
+                    <input
+                      type="range"
+                      min={5}
+                      max={30}
+                      step={1}
+                      value={options.coverTextHeight}
+                      onChange={(e) => updateOption("coverTextHeight", Number(e.target.value))}
+                      className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-orange-400"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

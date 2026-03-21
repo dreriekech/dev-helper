@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 const KEY_STORAGE = "vd_api_key";
 const VERSION_STORAGE = "haxmax_version";
-const LOCAL_VERSION = "1.2.0";
+const LOCAL_VERSION = "1.3.0";
 type Tab = "download" | "library" | "reup";
 
 interface VersionInfo {
