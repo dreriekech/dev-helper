@@ -825,15 +825,6 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       videoFilters.push("scale=trunc(iw/2)*2:trunc(ih/2)*2");
     }
 
-    const args = ["-y", "-i", source.filepath];
-
-    if (videoFilters.length > 0) {
-      args.push("-vf", videoFilters.join(","));
-    }
-    if (audioFilters.length > 0) {
-      args.push("-af", audioFilters.join(","));
-    }
-
     let ttsAudioPath: string | null = null;
     let bgMusicPath: string | null = null;
     const tempFiles: string[] = [];
@@ -903,28 +894,38 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     const hasVoice = ttsAudioPath && fs.existsSync(ttsAudioPath);
     const hasBgMusic = bgMusicPath && fs.existsSync(bgMusicPath);
 
+    const args = ["-y", "-i", source.filepath];
+
+    if (hasVoice) args.push("-i", ttsAudioPath!);
+    if (hasBgMusic) args.push("-i", bgMusicPath!);
+
+    if (videoFilters.length > 0) {
+      args.push("-vf", videoFilters.join(","));
+    }
+    if (audioFilters.length > 0 && !hasVoice && !hasBgMusic) {
+      args.push("-af", audioFilters.join(","));
+    }
+
+    const voiceIdx = hasVoice ? 1 : -1;
+    const bgmIdx = hasVoice && hasBgMusic ? 2 : hasBgMusic ? 1 : -1;
+
     if (options.stripAudio === true && !isAudioOnly && !hasVoice && !hasBgMusic) {
       args.push("-an");
     } else if (options.stripAudio === true && !isAudioOnly) {
       if (hasVoice && hasBgMusic) {
-        args.push("-i", ttsAudioPath!, "-i", bgMusicPath!);
-        args.push("-filter_complex", `[1:a]volume=1.0[voice];[2:a]volume=0.25[bgm];[voice][bgm]amix=inputs=2:duration=longest:dropout_transition=3[aout]`);
+        args.push("-filter_complex", `[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.25[bgm];[voice][bgm]amix=inputs=2:duration=longest:dropout_transition=3[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       } else if (hasVoice) {
-        args.push("-i", ttsAudioPath!);
-        args.push("-map", "0:v", "-map", "1:a");
+        args.push("-map", "0:v", "-map", `${voiceIdx}:a`);
       } else if (hasBgMusic) {
-        args.push("-i", bgMusicPath!);
-        args.push("-map", "0:v", "-map", "1:a");
+        args.push("-map", "0:v", "-map", `${bgmIdx}:a`);
       }
     } else if (hasVoice) {
-      args.push("-i", ttsAudioPath!);
       if (hasBgMusic) {
-        args.push("-i", bgMusicPath!);
-        args.push("-filter_complex", `[0:a]volume=0.15[orig];[1:a]volume=1.0[voice];[2:a]volume=0.2[bgm];[orig][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3[aout]`);
+        args.push("-filter_complex", `[0:a]volume=0.15[orig];[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.2[bgm];[orig][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       } else {
-        args.push("-filter_complex", `[0:a]volume=0.15[orig];[1:a]volume=1.0[voice];[orig][voice]amix=inputs=2:duration=longest:dropout_transition=3[aout]`);
+        args.push("-filter_complex", `[0:a]volume=0.15[orig];[${voiceIdx}:a]volume=1.0[voice];[orig][voice]amix=inputs=2:duration=longest:dropout_transition=3[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       }
     }
