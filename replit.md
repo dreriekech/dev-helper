@@ -76,6 +76,8 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 - `POST /api/video/reup` — Process a library video with ffmpeg transformations to make it unique for re-uploading (requires API key)
 - `POST /api/video/ai-rewrite` — AI-powered caption/hashtag rewriter using GPT-4o-mini (requires API key)
 - `POST /api/video/detect-scenes` — Scene detection using ffprobe scene change analysis (requires API key)
+- `POST /api/video/tts` — Text-to-speech using ElevenLabs multilingual v2 (requires API key, returns audio/mpeg)
+- `GET /api/video/tts/voices` — List available ElevenLabs voices (requires API key)
 - **Smart Reup mode**: User selects video + target platform → tool auto-generates randomized transforms within safe ranges → each reup creates a unique video
 - **5 target platforms**: TikTok, Facebook, YouTube Shorts, Instagram Reels, Twitter/X — each with platform-specific transform algorithms
 - **8 anti-detection features**:
@@ -87,6 +89,7 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
   6. **Strip audio** — `-an` flag to remove original audio and avoid audio fingerprint detection
   7. **Metadata capture + AI rewrite** — yt-dlp captures caption/hashtags/description; GPT-4o-mini rewrites caption + generates hashtags + hook + CTA per platform
   8. **Keyword highlight subtitles** — SRT→ASS conversion with yellow keyword highlighting; CRLF-safe parser
+  9. **Voice AI (ElevenLabs TTS)** — reads AI-rewritten caption/hook/CTA aloud using ElevenLabs multilingual v2 model; play/stop per section or all at once
 - **Randomized transforms per platform** (ranges vary): mirror, speed (0.97-1.05x), zoom (1.01-1.05x), brightness, contrast, saturation, border, noise, audio pitch
 - **"Reshuffle" button**: regenerate random transforms before processing
 - **Auto Subtitle toggle**: when ON, automatically transcribes + translates + burns subtitles during reup

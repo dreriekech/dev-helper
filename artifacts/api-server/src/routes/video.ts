@@ -891,6 +891,91 @@ router.post("/video/detect-scenes", validateApiKey, async (req, res): Promise<vo
   }
 });
 
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
+const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
+
+router.post("/video/tts", validateApiKey, async (req, res): Promise<void> => {
+  const { text, voiceId, lang } = req.body || {};
+
+  if (!text || typeof text !== "string" || text.trim().length === 0) {
+    res.status(400).json({ error: "Missing or empty text" });
+    return;
+  }
+
+  if (!ELEVENLABS_API_KEY) {
+    res.status(500).json({ error: "ElevenLabs API key not configured" });
+    return;
+  }
+
+  const defaultVoiceVi = "pFZP5JQG7iQjIQuC4Bku";
+  const defaultVoiceEn = "JBFqnCBsd6RMkjVDRZzb";
+  const selectedVoice = voiceId || (lang === "en" ? defaultVoiceEn : defaultVoiceVi);
+
+  try {
+    const ttsRes = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${selectedVoice}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "xi-api-key": ELEVENLABS_API_KEY,
+      },
+      body: JSON.stringify({
+        text: text.substring(0, 2000),
+        model_id: "eleven_multilingual_v2",
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.3,
+          use_speaker_boost: true,
+        },
+      }),
+    });
+
+    if (!ttsRes.ok) {
+      const errText = await ttsRes.text();
+      res.status(ttsRes.status).json({ error: `ElevenLabs error: ${errText}` });
+      return;
+    }
+
+    const audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Length", audioBuffer.length);
+    res.send(audioBuffer);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "TTS failed" });
+  }
+});
+
+router.get("/video/tts/voices", validateApiKey, async (_req, res): Promise<void> => {
+  if (!ELEVENLABS_API_KEY) {
+    res.status(500).json({ error: "ElevenLabs API key not configured" });
+    return;
+  }
+
+  try {
+    const voicesRes = await fetch(`${ELEVENLABS_BASE}/voices`, {
+      headers: { "xi-api-key": ELEVENLABS_API_KEY },
+    });
+
+    if (!voicesRes.ok) {
+      res.status(voicesRes.status).json({ error: "Failed to fetch voices" });
+      return;
+    }
+
+    const data = await voicesRes.json() as { voices: Array<{ voice_id: string; name: string; labels?: Record<string, string>; preview_url?: string }> };
+    const voices = (data.voices || []).map((v: { voice_id: string; name: string; labels?: Record<string, string>; preview_url?: string }) => ({
+      voiceId: v.voice_id,
+      name: v.name,
+      accent: v.labels?.accent || "",
+      gender: v.labels?.gender || "",
+      previewUrl: v.preview_url || "",
+    }));
+
+    res.json({ voices });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch voices" });
+  }
+});
+
 const SONIOX_API_KEY = process.env.SONIOX_API_KEY || "";
 const SONIOX_BASE = "https://api.soniox.com/v1";
 

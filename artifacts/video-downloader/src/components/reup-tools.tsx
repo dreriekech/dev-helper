@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { Wand2, FlipHorizontal, FlipVertical, Gauge, ZoomIn, Sun, Contrast, Palette, Square, Music, Sparkles, RotateCcw, CheckCircle, AlertCircle, Film, ChevronDown, Type, Languages, Mic, ArrowRight, Zap, Settings2, ChevronRight, Shuffle, Scissors, Eye, Volume2, VolumeX, Hash, Crop, Copy, Layers, Shield, ScanSearch } from "lucide-react";
+import { useState, useCallback, useRef } from "react";
+import { Wand2, FlipHorizontal, FlipVertical, Gauge, ZoomIn, Sun, Contrast, Palette, Square, Music, Sparkles, RotateCcw, CheckCircle, AlertCircle, Film, ChevronDown, Type, Languages, Mic, ArrowRight, Zap, Settings2, ChevronRight, Shuffle, Scissors, Eye, Volume2, VolumeX, Hash, Crop, Copy, Layers, Shield, ScanSearch, Play, Square as StopIcon, AudioLines } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LibraryItem } from "@/components/library-card";
 import type { Translations } from "@/lib/i18n";
@@ -196,6 +196,13 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
   const [detectingScenes, setDetectingScenes] = useState(false);
   const [sceneResult, setSceneResult] = useState<{ sceneCount: number; sceneChanges: number[] } | null>(null);
   const [keywordsInput, setKeywordsInput] = useState("");
+  const [ttsGenerating, setTtsGenerating] = useState<string | null>(null);
+  const [ttsPlaying, setTtsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const [voices, setVoices] = useState<{ voiceId: string; name: string; gender: string }[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState("");
+  const [voicesLoaded, setVoicesLoaded] = useState(false);
 
   const selectedItem = libraryItems.find((i) => i.fileId === selectedFileId);
 
@@ -242,6 +249,77 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
       setTimeout(() => setCopiedField(null), 2000);
     } catch {}
   };
+
+  const cleanupAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current = null;
+    }
+    if (audioUrlRef.current) {
+      URL.revokeObjectURL(audioUrlRef.current);
+      audioUrlRef.current = null;
+    }
+    setTtsPlaying(false);
+  }, []);
+
+  const fetchVoices = useCallback(async () => {
+    if (voicesLoaded) return;
+    try {
+      const res = await fetch("/api/video/tts/voices", {
+        headers: { "x-api-key": apiKey },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVoices(data.voices || []);
+        setVoicesLoaded(true);
+      }
+    } catch {}
+  }, [apiKey, voicesLoaded]);
+
+  const handleTts = async (text: string, label: string) => {
+    if (ttsGenerating || !text.trim()) return;
+
+    cleanupAudio();
+    setTtsGenerating(label);
+
+    try {
+      const body: Record<string, string> = { text, lang };
+      if (selectedVoice) body.voiceId = selectedVoice;
+
+      const res = await fetch("/api/video/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setResult({ success: false, message: data.error || t.reupVoiceError });
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      audioUrlRef.current = url;
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      setTtsPlaying(true);
+
+      audio.onended = () => { cleanupAudio(); };
+      audio.onerror = () => { cleanupAudio(); };
+
+      await audio.play().catch(() => { cleanupAudio(); });
+    } catch {
+      cleanupAudio();
+      setResult({ success: false, message: t.reupVoiceError });
+    } finally {
+      setTtsGenerating(null);
+    }
+  };
+
+  const stopTts = () => { cleanupAudio(); };
 
   const handleAiRewrite = async () => {
     if (!selectedFileId || aiRewriting) return;
@@ -711,6 +789,97 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {aiResult && (
+                <div className="bg-[#0a0a10] rounded-lg border border-cyan-500/10 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <AudioLines className="w-3.5 h-3.5" />
+                      {t.reupVoiceAi}
+                    </h4>
+                    <div className="flex items-center gap-2">
+                      {ttsPlaying && (
+                        <button
+                          onClick={stopTts}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/10 text-red-400 text-[9px] font-bold hover:bg-red-500/20 transition-all"
+                        >
+                          <StopIcon className="w-2.5 h-2.5" />
+                          {t.reupVoiceStop}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={selectedVoice}
+                      onFocus={fetchVoices}
+                      onChange={(e) => setSelectedVoice(e.target.value)}
+                      className="flex-1 bg-[#12121a] rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/60 outline-none cursor-pointer"
+                    >
+                      <option value="">{t.reupVoiceSelect} ({lang === "vi" ? "Mặc định" : "Default"})</option>
+                      {voices.map((v) => (
+                        <option key={v.voiceId} value={v.voiceId}>
+                          {v.name} {v.gender ? `(${v.gender})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => handleTts(aiResult.caption, "caption")}
+                      disabled={!!ttsGenerating}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      {ttsGenerating === "caption" ? (
+                        <span className="w-2.5 h-2.5 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
+                      ) : (
+                        <Play className="w-2.5 h-2.5" />
+                      )}
+                      {ttsGenerating === "caption" ? t.reupVoiceGenerating : t.reupVoiceCaption}
+                    </button>
+                    {aiResult.hook && (
+                      <button
+                        onClick={() => handleTts(aiResult.hook, "hook")}
+                        disabled={!!ttsGenerating}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                      >
+                        {ttsGenerating === "hook" ? (
+                          <span className="w-2.5 h-2.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                        ) : (
+                          <Play className="w-2.5 h-2.5" />
+                        )}
+                        {ttsGenerating === "hook" ? t.reupVoiceGenerating : t.reupVoiceHook}
+                      </button>
+                    )}
+                    {aiResult.cta && (
+                      <button
+                        onClick={() => handleTts(aiResult.cta, "cta")}
+                        disabled={!!ttsGenerating}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                      >
+                        {ttsGenerating === "cta" ? (
+                          <span className="w-2.5 h-2.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                        ) : (
+                          <Play className="w-2.5 h-2.5" />
+                        )}
+                        {ttsGenerating === "cta" ? t.reupVoiceGenerating : t.reupVoiceCta}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleTts([aiResult.hook, aiResult.caption, aiResult.cta].filter(Boolean).join(". "), "all")}
+                      disabled={!!ttsGenerating}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 border border-violet-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                    >
+                      {ttsGenerating === "all" ? (
+                        <span className="w-2.5 h-2.5 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" />
+                      ) : (
+                        <AudioLines className="w-2.5 h-2.5" />
+                      )}
+                      {ttsGenerating === "all" ? t.reupVoiceGenerating : t.reupVoiceAll}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
