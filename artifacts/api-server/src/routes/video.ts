@@ -227,12 +227,12 @@ router.post("/video/extract", validateApiKey, async (req, res): Promise<void> =>
       }));
 
     const qualityPresets: Array<{ height: number; label: string; formatSelector: string }> = [
-      { height: 2160, label: "4K (2160p)", formatSelector: "bestvideo[height<=2160]+bestaudio/best[height<=2160]" },
-      { height: 1440, label: "1440p", formatSelector: "bestvideo[height<=1440]+bestaudio/best[height<=1440]" },
-      { height: 1080, label: "1080p (Full HD)", formatSelector: "bestvideo[height<=1080]+bestaudio/best[height<=1080]" },
-      { height: 720, label: "720p (HD)", formatSelector: "bestvideo[height<=720]+bestaudio/best[height<=720]" },
-      { height: 480, label: "480p (SD)", formatSelector: "bestvideo[height<=480]+bestaudio/best[height<=480]" },
-      { height: 360, label: "360p", formatSelector: "bestvideo[height<=360]+bestaudio/best[height<=360]" },
+      { height: 2160, label: "4K (2160p)", formatSelector: "bestvideo[height<=2160]+bestaudio/best[height<=2160]/best" },
+      { height: 1440, label: "1440p", formatSelector: "bestvideo[height<=1440]+bestaudio/best[height<=1440]/best" },
+      { height: 1080, label: "1080p (Full HD)", formatSelector: "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best" },
+      { height: 720, label: "720p (HD)", formatSelector: "bestvideo[height<=720]+bestaudio/best[height<=720]/best" },
+      { height: 480, label: "480p (SD)", formatSelector: "bestvideo[height<=480]+bestaudio/best[height<=480]/best" },
+      { height: 360, label: "360p", formatSelector: "bestvideo[height<=360]+bestaudio/best[height<=360]/best" },
     ];
 
     const maxHeight = Math.max(...videoFormats.map((f: any) => f.height), 0);
@@ -590,7 +590,7 @@ async function ensureCompatibleAudio(filepath: string): Promise<string> {
     await runFfmpeg([
       "-y", "-i", filepath,
       "-c:v", "copy",
-      "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+      "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
       "-movflags", "+faststart",
       fixedPath,
     ]);
@@ -1117,7 +1117,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     }
 
     if (!isAudioOnly) {
-      args.push("-c:v", "libx264", "-preset", "ultrafast", "-threads", "0", "-movflags", "+faststart");
+      args.push("-c:v", "libx264", "-preset", "ultrafast", "-threads", "0");
       const crf = clamp(options.crf, 18, 28, 23);
       args.push("-crf", String(Math.round(crf)));
 
@@ -1129,13 +1129,19 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       }
     }
     if (!hasVoice && !hasBgMusic && options.stripAudio !== true) {
-      args.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100");
+      args.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2");
     } else if (hasVoice || hasBgMusic) {
-      args.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100");
+      args.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2");
     }
     args.push("-movflags", "+faststart", outputPath);
 
+    console.log("REUP ffmpeg command:", args.join(" "));
     await runFfmpeg(args);
+
+    try {
+      const probeCheck = await runFfprobe(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,codec_name,sample_rate", "-of", "csv=p=0", outputPath]);
+      console.log("REUP output audio check:", probeCheck.trim());
+    } catch {}
 
     for (const f of [...tempFiles, ...subtitleTempFiles]) {
       try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
