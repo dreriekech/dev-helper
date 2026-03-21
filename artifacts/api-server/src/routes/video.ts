@@ -604,6 +604,88 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
   }
 });
 
+const SONIOX_API_KEY = process.env.SONIOX_API_KEY || "";
+const SONIOX_BASE = "https://api.soniox.com/v1";
+
+async function sonioxUploadFile(filePath: string): Promise<string> {
+  const FormData = (await import("form-data")).default;
+  const form = new FormData();
+  form.append("file", fs.createReadStream(filePath));
+
+  const resp = await fetch(`${SONIOX_BASE}/files`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${SONIOX_API_KEY}`, ...form.getHeaders() },
+    body: form as any,
+  });
+  if (!resp.ok) throw new Error(`Soniox upload failed: ${resp.status} ${await resp.text()}`);
+  const data = await resp.json() as any;
+  return data.id;
+}
+
+async function sonioxCreateTranscription(fileId: string): Promise<string> {
+  const resp = await fetch(`${SONIOX_BASE}/transcriptions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${SONIOX_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ file_id: fileId, model: "stt-async-preview" }),
+  });
+  if (!resp.ok) throw new Error(`Soniox create transcription failed: ${resp.status} ${await resp.text()}`);
+  const data = await resp.json() as any;
+  return data.id;
+}
+
+async function sonioxPollTranscription(transcriptionId: string, maxWaitMs = 120000): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const resp = await fetch(`${SONIOX_BASE}/transcriptions/${transcriptionId}`, {
+      headers: { Authorization: `Bearer ${SONIOX_API_KEY}` },
+    });
+    if (!resp.ok) throw new Error(`Soniox poll failed: ${resp.status}`);
+    const data = await resp.json() as any;
+    if (data.status === "completed") return "completed";
+    if (data.status === "error" || data.status === "failed") throw new Error(`Soniox transcription failed: ${data.error || data.status}`);
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error("Soniox transcription timed out");
+}
+
+async function sonioxGetTranscript(transcriptionId: string): Promise<{ tokens: Array<{ text: string; start_ms: number; end_ms: number }> }> {
+  const resp = await fetch(`${SONIOX_BASE}/transcriptions/${transcriptionId}/transcript`, {
+    headers: { Authorization: `Bearer ${SONIOX_API_KEY}` },
+  });
+  if (!resp.ok) throw new Error(`Soniox get transcript failed: ${resp.status}`);
+  return resp.json() as any;
+}
+
+function tokensToSegments(tokens: Array<{ text: string; start_ms: number; end_ms: number }>): Array<{ start: number; end: number; text: string }> {
+  const segments: Array<{ start: number; end: number; text: string }> = [];
+  let currentWords: string[] = [];
+  let segStart = 0;
+  let segEnd = 0;
+
+  for (const token of tokens) {
+    if (currentWords.length === 0) {
+      segStart = token.start_ms / 1000;
+    }
+    currentWords.push(token.text);
+    segEnd = token.end_ms / 1000;
+
+    const joined = currentWords.join("");
+    const endsWithPunctuation = /[.!?。！？]$/.test(joined.trim());
+    const wordCount = joined.trim().split(/\s+/).length;
+
+    if (endsWithPunctuation || wordCount >= 12) {
+      segments.push({ start: segStart, end: segEnd, text: joined.trim() });
+      currentWords = [];
+    }
+  }
+
+  if (currentWords.length > 0) {
+    segments.push({ start: segStart, end: segEnd, text: currentWords.join("").trim() });
+  }
+
+  return segments;
+}
+
 router.post("/video/transcribe", validateApiKey, async (req, res): Promise<void> => {
   const { fileId, targetLang } = req.body || {};
 
@@ -618,26 +700,23 @@ router.post("/video/transcribe", validateApiKey, async (req, res): Promise<void>
     return;
   }
 
+  if (!SONIOX_API_KEY) {
+    res.status(500).json({ error: "SONIOX_API_KEY not configured" });
+    return;
+  }
+
   const audioPath = path.join(DOWNLOAD_DIR, `${randomUUID()}.mp3`);
 
   try {
     await runFfmpeg(["-y", "-i", source.filepath, "-vn", "-acodec", "libmp3lame", "-b:a", "128k", "-ar", "16000", "-ac", "1", audioPath]);
 
-    const audioFile = fs.createReadStream(audioPath);
-    const transcription = await openai.audio.transcriptions.create({
-      model: "whisper-1",
-      file: audioFile,
-      response_format: "verbose_json",
-      timestamp_granularities: ["segment"],
-    });
+    const sonioxFileId = await sonioxUploadFile(audioPath);
+    const transcriptionId = await sonioxCreateTranscription(sonioxFileId);
+    await sonioxPollTranscription(transcriptionId);
+    const transcript = await sonioxGetTranscript(transcriptionId);
 
-    const segments: Array<{ start: number; end: number; text: string }> = ((transcription as any).segments || []).map((s: any) => ({
-      start: s.start,
-      end: s.end,
-      text: (s.text || "").trim(),
-    }));
-    const originalText = (transcription as any).text || "";
-    const detectedLang = (transcription as any).language || "unknown";
+    const segments = tokensToSegments(transcript.tokens || []);
+    const originalText = segments.map((s) => s.text).join(" ");
 
     const formatSrtTime = (s: number) => {
       const h = Math.floor(s / 3600);
@@ -688,7 +767,7 @@ router.post("/video/transcribe", validateApiKey, async (req, res): Promise<void>
 
     res.json({
       originalText,
-      detectedLang,
+      detectedLang: "auto",
       translatedText: translatedText || originalText,
       srtContent,
       segments: finalSegments,

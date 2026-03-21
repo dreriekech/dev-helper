@@ -85,10 +85,12 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 
 ### Auto Subtitles (Transcription + Translation)
 - `POST /api/video/transcribe` — Extract speech from video audio, transcribe, and optionally translate (requires API key)
-- Uses OpenAI (Replit AI Integrations proxy) — gpt-4o-mini-transcribe for speech-to-text, gpt-4o-mini for translation
-- Workflow: extract audio → send to Whisper → detect language → translate segments to target language → generate SRT
-- Supports auto-detect source language, translate to Vietnamese or English
-- Returns: originalText, detectedLang, translatedText, srtContent, segments with timestamps
+- Uses **Soniox API** (`stt-async-preview` model) for speech-to-text with word-level timestamps
+- Workflow: extract audio (ffmpeg) → upload to Soniox → create transcription → poll until complete → get tokens with timestamps → group tokens into subtitle segments → translate with GPT if needed → generate SRT
+- Token grouping: tokens are grouped into segments by punctuation or max 12 words per segment
+- Translation: uses OpenAI gpt-4o-mini to translate each segment while preserving timestamps
+- Returns: originalText, detectedLang, translatedText, srtContent, segments with start/end timestamps
+- Environment: requires `SONIOX_API_KEY` env var
 - Frontend allows generating subtitles and then burning them into the video via the reup process
 
 ### Library Preview
