@@ -1053,10 +1053,12 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
             }
           }
 
-          if (audioBuffer) {
+          if (audioBuffer && audioBuffer.length > 1000) {
             ttsAudioPath = path.join(DOWNLOAD_DIR, `${newFileId}_voice.mp3`);
             fs.writeFileSync(ttsAudioPath, audioBuffer);
             tempFiles.push(ttsAudioPath);
+          } else if (audioBuffer) {
+            console.warn("TTS audio buffer too small, likely invalid:", audioBuffer.length, "bytes");
           }
         } catch (err: any) {
           console.error("Voice from subtitles failed:", err.message);
@@ -1097,7 +1099,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       args.push("-an");
     } else if (options.stripAudio === true && !isAudioOnly) {
       if (hasVoice && hasBgMusic) {
-        args.push("-filter_complex", `[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.25[bgm];[voice][bgm]amix=inputs=2:duration=longest:dropout_transition=3[aout]`);
+        args.push("-filter_complex", `[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.3[bgm];[voice][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       } else if (hasVoice) {
         args.push("-map", "0:v", "-map", `${voiceIdx}:a`);
@@ -1106,10 +1108,10 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       }
     } else if (hasVoice) {
       if (hasBgMusic) {
-        args.push("-filter_complex", `[0:a]volume=0.15[orig];[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.2[bgm];[orig][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3[aout]`);
+        args.push("-filter_complex", `[0:a]volume=0.3[orig];[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.25[bgm];[orig][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3:normalize=0[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       } else {
-        args.push("-filter_complex", `[0:a]volume=0.15[orig];[${voiceIdx}:a]volume=1.0[voice];[orig][voice]amix=inputs=2:duration=longest:dropout_transition=3[aout]`);
+        args.push("-filter_complex", `[0:a]volume=0.3[orig];[${voiceIdx}:a]volume=1.0[voice];[orig][voice]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       }
     }
