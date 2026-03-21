@@ -75,11 +75,27 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 ### Reup Tools
 - `POST /api/video/reup` — Process a library video with ffmpeg transformations to make it unique for re-uploading (requires API key)
 - Takes `fileId` (from library) and `options` object with transformation parameters
-- Supported transformations: mirror (hflip), vertical flip, rotate, zoom/crop, brightness/contrast/saturation (combined eq filter), border/padding, speed change, audio pitch shift, color balance (RGB), noise
+- Supported transformations: mirror (hflip), vertical flip, rotate, zoom/crop, brightness/contrast/saturation (combined eq filter), border/padding, speed change, audio pitch shift, color balance (RGB), noise, text overlay (drawtext), SRT subtitles burn
+- Text overlay options: subtitleText, subtitleFontSize, subtitleColor, subtitleBg, subtitlePosition (top/center/bottom)
+- SRT subtitle burn: srtContent field with full SRT file content, uses ffmpeg subtitles filter
 - All numeric inputs are clamped to safe ranges; color strings are sanitized
 - Audio-only files skip video filters; output uses appropriate codec
 - Processed video is saved back to library with `[Reup]` prefix in title
 - Quick presets: TikTok Reup (mirror + speed 1.05x + zoom 1.03x + pitch 1.02), Facebook Reup (mirror + brightness +0.05 + saturation 1.15 + border 2px)
+
+### Auto Subtitles (Transcription + Translation)
+- `POST /api/video/transcribe` — Extract speech from video audio, transcribe, and optionally translate (requires API key)
+- Uses OpenAI (Replit AI Integrations proxy) — gpt-4o-mini-transcribe for speech-to-text, gpt-4o-mini for translation
+- Workflow: extract audio → send to Whisper → detect language → translate segments to target language → generate SRT
+- Supports auto-detect source language, translate to Vietnamese or English
+- Returns: originalText, detectedLang, translatedText, srtContent, segments with timestamps
+- Frontend allows generating subtitles and then burning them into the video via the reup process
+
+### Library Preview
+- Video preview modal in library — click thumbnail or play button to open full video player
+- Modal shows video title, quality badge, platform info, file size
+- Auto-play with native video controls
+- Save-to-device button available within the preview modal
 
 ### Backend Logic
 - Uses `yt-dlp` as a subprocess for video extraction and downloading

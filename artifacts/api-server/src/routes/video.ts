@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import OpenAI from "openai";
 import {
   ExtractVideoInfoBody,
   ExtractVideoInfoResponse,
@@ -11,6 +12,11 @@ import {
   DownloadVideoResponse,
   StreamVideoParams,
 } from "@workspace/api-zod";
+
+const openai = new OpenAI({
+  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+});
 
 const router: IRouter = Router();
 
@@ -520,6 +526,27 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       audioFilters.push(`asetrate=44100*${audioPitch.toFixed(4)},aresample=44100`);
     }
 
+    if (!isAudioOnly && options.subtitleText && typeof options.subtitleText === "string") {
+      const text = options.subtitleText.replace(/'/g, "'\\''").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
+      const fontSize = clamp(options.subtitleFontSize, 12, 72, 24);
+      const fontColor = sanitizeColor(options.subtitleColor || "white");
+      const bgColor = options.subtitleBg === true ? "black@0.5" : "";
+      const yPos = options.subtitlePosition === "top" ? "30" : options.subtitlePosition === "center" ? "(h-text_h)/2" : "h-text_h-30";
+      let drawTextFilter = `drawtext=text='${text}':fontsize=${Math.round(fontSize)}:fontcolor=${fontColor}:x=(w-text_w)/2:y=${yPos}:borderw=2:bordercolor=black`;
+      if (bgColor) {
+        drawTextFilter += `:box=1:boxcolor=${bgColor}:boxborderw=8`;
+      }
+      videoFilters.push(drawTextFilter);
+    }
+
+    if (!isAudioOnly && options.srtContent && typeof options.srtContent === "string") {
+      const srtPath = path.join(DOWNLOAD_DIR, `${newFileId}.srt`);
+      fs.writeFileSync(srtPath, options.srtContent, "utf-8");
+      const fontSize = clamp(options.subtitleFontSize, 12, 72, 24);
+      const escapedSrtPath = srtPath.replace(/:/g, "\\:").replace(/\\/g, "/");
+      videoFilters.push(`subtitles=${escapedSrtPath}:force_style='FontSize=${Math.round(fontSize)},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,BackColour=&H80000000,Alignment=2'`);
+    }
+
     if (!isAudioOnly && videoFilters.length > 0) {
       videoFilters.push("scale=trunc(iw/2)*2:trunc(ih/2)*2");
     }
@@ -574,6 +601,97 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     } catch {}
     res.status(500).json({ error: err.message || "Failed to process video" });
+  }
+});
+
+router.post("/video/transcribe", validateApiKey, async (req, res): Promise<void> => {
+  const { fileId, targetLang } = req.body || {};
+
+  if (!fileId) {
+    res.status(400).json({ error: "Missing fileId" });
+    return;
+  }
+
+  const source = activeDownloads.get(fileId);
+  if (!source || !fs.existsSync(source.filepath)) {
+    res.status(404).json({ error: "Source file not found" });
+    return;
+  }
+
+  const audioPath = path.join(DOWNLOAD_DIR, `${randomUUID()}.mp3`);
+
+  try {
+    await runFfmpeg(["-y", "-i", source.filepath, "-vn", "-acodec", "libmp3lame", "-b:a", "64k", "-ar", "16000", "-ac", "1", audioPath]);
+
+    const audioFile = fs.createReadStream(audioPath);
+    const transcription = await openai.audio.transcriptions.create({
+      model: "gpt-4o-mini-transcribe",
+      file: audioFile,
+      response_format: "verbose_json",
+      timestamp_granularities: ["segment"],
+    });
+
+    const segments = (transcription as any).segments || [];
+    const originalText = (transcription as any).text || "";
+    const detectedLang = (transcription as any).language || "unknown";
+
+    let translatedSegments: Array<{ start: number; end: number; text: string }> = [];
+    let translatedText = "";
+
+    if (targetLang && targetLang !== detectedLang && segments.length > 0) {
+      const langNames: Record<string, string> = { vi: "Vietnamese", en: "English" };
+      const targetName = langNames[targetLang] || targetLang;
+
+      const segTexts = segments.map((s: any, i: number) => `[${i}] ${s.text}`).join("\n");
+      const chatRes = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a professional translator. Translate each numbered line to ${targetName}. Keep the [number] prefix. Return ONLY the translated lines, one per line. Keep the translation natural and concise for video subtitles.`
+          },
+          { role: "user", content: segTexts }
+        ],
+        temperature: 0.3,
+      });
+
+      const translated = chatRes.choices[0]?.message?.content || "";
+      const lines = translated.split("\n").filter(Boolean);
+
+      translatedSegments = segments.map((seg: any, i: number) => {
+        const line = lines.find((l: string) => l.startsWith(`[${i}]`));
+        const cleanText = line ? line.replace(/^\[\d+\]\s*/, "") : seg.text;
+        return { start: seg.start, end: seg.end, text: cleanText };
+      });
+
+      translatedText = translatedSegments.map((s) => s.text).join(" ");
+    }
+
+    let srtContent = "";
+    const segsToUse = translatedSegments.length > 0 ? translatedSegments : segments;
+    segsToUse.forEach((seg: any, i: number) => {
+      const formatTime = (s: number) => {
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const sec = Math.floor(s % 60);
+        const ms = Math.round((s % 1) * 1000);
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+      };
+      srtContent += `${i + 1}\n${formatTime(seg.start)} --> ${formatTime(seg.end)}\n${seg.text}\n\n`;
+    });
+
+    try { fs.unlinkSync(audioPath); } catch {}
+
+    res.json({
+      originalText,
+      detectedLang,
+      translatedText: translatedText || originalText,
+      srtContent,
+      segments: segsToUse.map((s: any) => ({ start: s.start, end: s.end, text: s.text })),
+    });
+  } catch (err: any) {
+    try { fs.unlinkSync(audioPath); } catch {}
+    res.status(500).json({ error: err.message || "Transcription failed" });
   }
 });
 
