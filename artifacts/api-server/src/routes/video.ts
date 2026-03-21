@@ -769,7 +769,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
     if (!isAudioOnly && options.subtitleText && typeof options.subtitleText === "string") {
       const text = options.subtitleText.replace(/'/g, "'\\''").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
-      const fontSize = clamp(options.subtitleFontSize, 8, 48, 14);
+      const fontSize = clamp(options.subtitleFontSize, 8, 48, 10);
       const fontColor = sanitizeColor(options.subtitleColor || "white");
       const yPos = options.subtitlePosition === "top" ? "30" : options.subtitlePosition === "center" ? "(h-text_h)/2" : "h-text_h-30";
       const textStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
@@ -790,7 +790,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
     if (!isAudioOnly && options.srtContent && typeof options.srtContent === "string") {
       const srtPath = path.join(DOWNLOAD_DIR, `${newFileId}.srt`);
-      const baseFontSize = clamp(options.subtitleFontSize, 8, 48, 14);
+      const baseFontSize = clamp(options.subtitleFontSize, 8, 48, 10);
       const widthScale = Math.min(1, videoWidth / 1080);
       const scaledFontSize = Math.max(8, Math.round(baseFontSize * widthScale));
       const marginL = Math.max(10, Math.round(80 * widthScale));
@@ -1015,8 +1015,8 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,${Math.round(fontSize)},${s.primary},&H000000FF,${s.outline},${s.back},1,0,0,0,100,100,0,0,1,${s.outlineW},${s.shadow},2,120,120,40,1
-Style: Highlight,Arial,${Math.round(fontSize)},&H0000D7FF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,120,120,40,1
+Style: Default,Arial,${Math.round(fontSize)},${s.primary},&H000000FF,${s.outline},${s.back},1,0,0,0,100,100,0,0,1,${s.outlineW},${s.shadow},2,80,80,30,1
+Style: Highlight,Arial,${Math.round(fontSize)},&H0000D7FF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,80,80,30,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1426,33 +1426,87 @@ async function sonioxGetTranscript(transcriptionId: string): Promise<{ tokens: A
 }
 
 function tokensToSegments(tokens: Array<{ text: string; start_ms: number; end_ms: number }>): Array<{ start: number; end: number; text: string }> {
+  const MAX_CHARS = 35;
+  const MAX_WORDS = 8;
+
+  const words: Array<{ text: string; start_ms: number; end_ms: number }> = [];
+  let buf = "";
+  let bufStart = 0;
+  let bufEnd = 0;
+  for (const t of tokens) {
+    const txt = t.text.replace(/\s+/g, " ");
+    if (!buf) { bufStart = t.start_ms; }
+    buf += txt;
+    bufEnd = t.end_ms;
+    if (buf.endsWith(" ") || /[.!?,;:。！？，；]$/.test(buf.trim())) {
+      if (buf.trim()) words.push({ text: buf.trim(), start_ms: bufStart, end_ms: bufEnd });
+      buf = "";
+    }
+  }
+  if (buf.trim()) words.push({ text: buf.trim(), start_ms: bufStart, end_ms: bufEnd });
+
   const segments: Array<{ start: number; end: number; text: string }> = [];
-  let currentWords: string[] = [];
+  let segWords: string[] = [];
   let segStart = 0;
   let segEnd = 0;
 
-  for (const token of tokens) {
-    if (currentWords.length === 0) {
-      segStart = token.start_ms / 1000;
-    }
-    currentWords.push(token.text);
-    segEnd = token.end_ms / 1000;
+  for (const w of words) {
+    if (segWords.length === 0) segStart = w.start_ms / 1000;
+    segWords.push(w.text);
+    segEnd = w.end_ms / 1000;
 
-    const joined = currentWords.join("");
-    const endsWithPunctuation = /[.!?。！？]$/.test(joined.trim());
-    const wordCount = joined.trim().split(/\s+/).length;
+    const joined = segWords.join(" ");
+    const endsWithPunc = /[.!?。！？]$/.test(joined);
+    const endsWithComma = /[,;，；:]$/.test(joined);
 
-    if (endsWithPunctuation || wordCount >= 12) {
-      segments.push({ start: segStart, end: segEnd, text: joined.trim() });
-      currentWords = [];
+    if (endsWithPunc || joined.length >= MAX_CHARS || segWords.length >= MAX_WORDS || endsWithComma) {
+      segments.push({ start: segStart, end: segEnd, text: joined });
+      segWords = [];
     }
   }
 
-  if (currentWords.length > 0) {
-    segments.push({ start: segStart, end: segEnd, text: currentWords.join("").trim() });
+  if (segWords.length > 0) {
+    segments.push({ start: segStart, end: segEnd, text: segWords.join(" ") });
   }
 
-  return segments;
+  return smartSplitLongSegments(segments);
+}
+
+function smartSplitLongSegments(segments: Array<{ start: number; end: number; text: string }>): Array<{ start: number; end: number; text: string }> {
+  const MAX_DISPLAY_CHARS = 40;
+  const result: Array<{ start: number; end: number; text: string }> = [];
+
+  for (const seg of segments) {
+    if (seg.text.length <= MAX_DISPLAY_CHARS) {
+      result.push(seg);
+      continue;
+    }
+
+    const words = seg.text.split(/\s+/);
+    const duration = seg.end - seg.start;
+    const totalChars = seg.text.length;
+    let line: string[] = [];
+    let lineStart = seg.start;
+    let charsUsed = 0;
+
+    for (let i = 0; i < words.length; i++) {
+      line.push(words[i]);
+      const lineText = line.join(" ");
+
+      const isLast = i === words.length - 1;
+      const tooLong = lineText.length >= MAX_DISPLAY_CHARS;
+
+      if (tooLong || isLast) {
+        const lineEnd = lineStart + (lineText.length / totalChars) * duration;
+        result.push({ start: lineStart, end: Math.min(lineEnd, seg.end), text: lineText });
+        charsUsed += lineText.length;
+        lineStart = lineEnd;
+        line = [];
+      }
+    }
+  }
+
+  return result;
 }
 
 router.post("/video/transcribe", validateApiKey, async (req, res): Promise<void> => {
