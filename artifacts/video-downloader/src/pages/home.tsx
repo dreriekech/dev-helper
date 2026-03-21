@@ -593,6 +593,7 @@ export default function Home() {
                 apiKey={apiKeyValue}
                 onProcessed={library.refresh}
                 t={t}
+                lang={lang}
               />
             </motion.div>
           )}

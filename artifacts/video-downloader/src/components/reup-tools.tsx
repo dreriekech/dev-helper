@@ -5,6 +5,8 @@ import type { LibraryItem } from "@/components/library-card";
 import type { Translations } from "@/lib/i18n";
 import { cn, formatBytes } from "@/lib/utils";
 
+type SubtitleStyle = "classic" | "outline" | "highlight" | "shadow" | "neon" | "retro";
+
 interface ReupOptions {
   mirror: boolean;
   flipVertical: boolean;
@@ -22,8 +24,18 @@ interface ReupOptions {
   subtitleColor: string;
   subtitleBg: boolean;
   subtitlePosition: "top" | "center" | "bottom";
+  subtitleStyle: SubtitleStyle;
   srtContent: string;
 }
+
+const subtitleStylePresets: { id: SubtitleStyle; label: string; labelEn: string; preview: string; desc: string; descEn: string }[] = [
+  { id: "classic", label: "Cơ bản", labelEn: "Classic", preview: "Aa", desc: "Trắng + viền đen", descEn: "White + black outline" },
+  { id: "outline", label: "Viền đậm", labelEn: "Bold Outline", preview: "Aa", desc: "Viền dày nổi bật", descEn: "Thick outline" },
+  { id: "highlight", label: "Nổi bật", labelEn: "Highlight", preview: "Aa", desc: "Nền vàng chữ đen", descEn: "Yellow bg black text" },
+  { id: "shadow", label: "Bóng đổ", labelEn: "Shadow", preview: "Aa", desc: "Đổ bóng mạnh", descEn: "Heavy drop shadow" },
+  { id: "neon", label: "Neon", labelEn: "Neon", preview: "Aa", desc: "Phát sáng neon", descEn: "Neon glow" },
+  { id: "retro", label: "Retro", labelEn: "Retro", preview: "Aa", desc: "Kiểu hoạt hình", descEn: "Cartoon style" },
+];
 
 const defaultOptions: ReupOptions = {
   mirror: false,
@@ -42,6 +54,7 @@ const defaultOptions: ReupOptions = {
   subtitleColor: "white",
   subtitleBg: true,
   subtitlePosition: "bottom",
+  subtitleStyle: "classic",
   srtContent: "",
 };
 
@@ -67,9 +80,10 @@ interface ReupToolsProps {
   apiKey: string;
   onProcessed: () => void;
   t: Translations;
+  lang: "vi" | "en";
 }
 
-export function ReupTools({ libraryItems, apiKey, onProcessed, t }: ReupToolsProps) {
+export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupToolsProps) {
   const [selectedFileId, setSelectedFileId] = useState<string>("");
   const [options, setOptions] = useState<ReupOptions>({ ...defaultOptions, ...tiktokPreset });
   const [preset, setPreset] = useState<Preset>("tiktok");
@@ -478,66 +492,99 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t }: ReupToolsPro
               />
 
               {(options.subtitleText.trim() || options.srtContent.trim()) && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-white/30">{t.reupTextPosition}</span>
-                    <div className="flex gap-1">
-                      {(["top", "center", "bottom"] as const).map((pos) => (
-                        <button
-                          key={pos}
-                          onClick={() => updateOption("subtitlePosition", pos)}
-                          className={cn(
-                            "px-2 py-1 rounded text-[10px] font-bold transition-all",
-                            options.subtitlePosition === pos
-                              ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                              : "bg-white/[0.02] text-white/40 border border-white/5 hover:bg-white/5"
-                          )}
-                        >
-                          {pos === "top" ? t.reupTextPositionTop : pos === "center" ? t.reupTextPositionCenter : t.reupTextPositionBottom}
-                        </button>
-                      ))}
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <span className="text-[10px] text-white/30 uppercase tracking-wider">{lang === "vi" ? "Kiểu chữ" : "Text Style"}</span>
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                      {subtitleStylePresets.map((style) => {
+                        const stylePreviewMap: Record<SubtitleStyle, React.CSSProperties> = {
+                          classic: { color: "#fff", textShadow: "1px 1px 2px #000, -1px -1px 2px #000", fontWeight: 700 },
+                          outline: { color: "#fff", WebkitTextStroke: "2px #000", fontWeight: 900 },
+                          highlight: { color: "#000", backgroundColor: "#FFD700", padding: "1px 4px", borderRadius: 2, fontWeight: 800 },
+                          shadow: { color: "#fff", textShadow: "3px 3px 6px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.5)", fontWeight: 700 },
+                          neon: { color: "#00ffff", textShadow: "0 0 5px #00ffff, 0 0 10px #00ffff, 0 0 20px #0088ff", fontWeight: 700 },
+                          retro: { color: "#FFD700", WebkitTextStroke: "1.5px #000", textShadow: "2px 2px 0 #FF6B00", fontWeight: 900 },
+                        };
+                        return (
+                          <button
+                            key={style.id}
+                            onClick={() => updateOption("subtitleStyle", style.id)}
+                            className={cn(
+                              "flex flex-col items-center gap-1 p-2 rounded-lg border transition-all",
+                              options.subtitleStyle === style.id
+                                ? "bg-amber-500/10 border-amber-500/40 ring-1 ring-amber-500/20"
+                                : "bg-white/[0.02] border-white/5 hover:bg-white/5 hover:border-white/10"
+                            )}
+                          >
+                            <span className="text-base leading-none" style={stylePreviewMap[style.id]}>{style.preview}</span>
+                            <span className="text-[9px] font-bold text-white/60">{lang === "vi" ? style.label : style.labelEn}</span>
+                            <span className="text-[8px] text-white/25">{lang === "vi" ? style.desc : style.descEn}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-white/30">{t.reupTextSize}</span>
-                    <input
-                      type="range"
-                      min={8}
-                      max={48}
-                      step={1}
-                      value={options.subtitleFontSize}
-                      onChange={(e) => updateOption("subtitleFontSize", Number(e.target.value))}
-                      className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-amber-400"
-                    />
-                    <span className="text-[10px] text-white/30 font-mono">{options.subtitleFontSize}px</span>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-white/30">{t.reupTextColor}</span>
-                    <div className="flex gap-1">
-                      {["white", "yellow", "#00ff88", "#ff6b6b", "#4ecdc4"].map((c) => (
-                        <button
-                          key={c}
-                          onClick={() => updateOption("subtitleColor", c)}
-                          className={cn(
-                            "w-5 h-5 rounded border-2 transition-all",
-                            options.subtitleColor === c ? "border-amber-400 scale-110" : "border-white/10"
-                          )}
-                          style={{ backgroundColor: c }}
-                        />
-                      ))}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-white/30">{t.reupTextPosition}</span>
+                      <div className="flex gap-1">
+                        {(["top", "center", "bottom"] as const).map((pos) => (
+                          <button
+                            key={pos}
+                            onClick={() => updateOption("subtitlePosition", pos)}
+                            className={cn(
+                              "px-2 py-1 rounded text-[10px] font-bold transition-all",
+                              options.subtitlePosition === pos
+                                ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                                : "bg-white/[0.02] text-white/40 border border-white/5 hover:bg-white/5"
+                            )}
+                          >
+                            {pos === "top" ? t.reupTextPositionTop : pos === "center" ? t.reupTextPositionCenter : t.reupTextPositionBottom}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-white/30">{t.reupTextBg}</span>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-white/30">{t.reupTextSize}</span>
                       <input
-                        type="checkbox"
-                        checked={options.subtitleBg}
-                        onChange={(e) => updateOption("subtitleBg", e.target.checked)}
-                        className="rounded border-white/20 bg-transparent accent-amber-500"
+                        type="range"
+                        min={8}
+                        max={48}
+                        step={1}
+                        value={options.subtitleFontSize}
+                        onChange={(e) => updateOption("subtitleFontSize", Number(e.target.value))}
+                        className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-amber-400"
                       />
-                      <span className="text-[10px] text-white/50">ON</span>
-                    </label>
+                      <span className="text-[10px] text-white/30 font-mono">{options.subtitleFontSize}px</span>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-white/30">{t.reupTextColor}</span>
+                      <div className="flex gap-1">
+                        {["white", "yellow", "#00ff88", "#ff6b6b", "#4ecdc4"].map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => updateOption("subtitleColor", c)}
+                            className={cn(
+                              "w-5 h-5 rounded border-2 transition-all",
+                              options.subtitleColor === c ? "border-amber-400 scale-110" : "border-white/10"
+                            )}
+                            style={{ backgroundColor: c }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-white/30">{t.reupTextBg}</span>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={options.subtitleBg}
+                          onChange={(e) => updateOption("subtitleBg", e.target.checked)}
+                          className="rounded border-white/20 bg-transparent accent-amber-500"
+                        />
+                        <span className="text-[10px] text-white/50">ON</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
               )}

@@ -555,14 +555,21 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
     if (!isAudioOnly && options.subtitleText && typeof options.subtitleText === "string") {
       const text = options.subtitleText.replace(/'/g, "'\\''").replace(/:/g, "\\:").replace(/\\/g, "\\\\");
-      const fontSize = clamp(options.subtitleFontSize, 12, 72, 24);
+      const fontSize = clamp(options.subtitleFontSize, 8, 48, 14);
       const fontColor = sanitizeColor(options.subtitleColor || "white");
-      const bgColor = options.subtitleBg === true ? "black@0.5" : "";
       const yPos = options.subtitlePosition === "top" ? "30" : options.subtitlePosition === "center" ? "(h-text_h)/2" : "h-text_h-30";
-      let drawTextFilter = `drawtext=text='${text}':fontsize=${Math.round(fontSize)}:fontcolor=${fontColor}:x=(w-text_w)/2:y=${yPos}:borderw=2:bordercolor=black`;
-      if (bgColor) {
-        drawTextFilter += `:box=1:boxcolor=${bgColor}:boxborderw=8`;
-      }
+      const textStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
+
+      const drawStyleMap: Record<string, string> = {
+        classic: `:fontcolor=${fontColor}:borderw=2:bordercolor=black${options.subtitleBg ? ":box=1:boxcolor=black@0.5:boxborderw=8" : ""}`,
+        outline: `:fontcolor=${fontColor}:borderw=4:bordercolor=black`,
+        highlight: `:fontcolor=black:box=1:boxcolor=yellow@0.9:boxborderw=10:borderw=0`,
+        shadow: `:fontcolor=${fontColor}:borderw=1:bordercolor=black:shadowcolor=black@0.8:shadowx=3:shadowy=3`,
+        neon: `:fontcolor=cyan:borderw=2:bordercolor=blue`,
+        retro: `:fontcolor=yellow:borderw=3:bordercolor=black:shadowcolor=orange@0.8:shadowx=2:shadowy=2`,
+      };
+      const styleStr = drawStyleMap[textStyle] || drawStyleMap.classic;
+      const drawTextFilter = `drawtext=text='${text}':fontsize=${Math.round(fontSize)}:x=(w-text_w)/2:y=${yPos}${styleStr}`;
       videoFilters.push(drawTextFilter);
     }
 
@@ -571,7 +578,18 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       fs.writeFileSync(srtPath, options.srtContent, "utf-8");
       const fontSize = clamp(options.subtitleFontSize, 8, 48, 14);
       const escapedSrtPath = srtPath.replace(/:/g, "\\:").replace(/\\/g, "/");
-      videoFilters.push(`subtitles=${escapedSrtPath}:force_style='FontSize=${Math.round(fontSize)},FontName=Arial,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2'`);
+
+      const subtitleStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
+      const styleMap: Record<string, string> = {
+        classic: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+        outline: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+        highlight: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+        shadow: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+        neon: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+        retro: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+      };
+      const forceStyle = styleMap[subtitleStyle] || styleMap.classic;
+      videoFilters.push(`subtitles=${escapedSrtPath}:force_style='${forceStyle}'`);
     }
 
     if (!isAudioOnly && videoFilters.length > 0) {
