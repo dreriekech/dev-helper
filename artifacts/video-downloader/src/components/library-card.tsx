@@ -16,6 +16,9 @@ export interface LibraryItem {
   createdAt: number;
   expiresInMinutes: number;
   streamUrl: string;
+  caption?: string;
+  hashtags?: string[];
+  description?: string;
 }
 
 interface LibraryCardProps {

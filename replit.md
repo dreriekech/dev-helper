@@ -74,13 +74,24 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 
 ### Reup Tools (Smart 1-Click)
 - `POST /api/video/reup` — Process a library video with ffmpeg transformations to make it unique for re-uploading (requires API key)
+- `POST /api/video/ai-rewrite` — AI-powered caption/hashtag rewriter using GPT-4o-mini (requires API key)
+- `POST /api/video/detect-scenes` — Scene detection using ffprobe scene change analysis (requires API key)
 - **Smart Reup mode**: User selects video + target platform → tool auto-generates randomized transforms within safe ranges → each reup creates a unique video
 - **5 target platforms**: TikTok, Facebook, YouTube Shorts, Instagram Reels, Twitter/X — each with platform-specific transform algorithms
-- **Randomized transforms per platform** (ranges vary by platform): mirror, speed (0.97-1.05x), zoom (1.01-1.05x), brightness, contrast, saturation, border, noise, audio pitch
+- **8 anti-detection features**:
+  1. **Watermark removal** — ffmpeg delogo filter to remove platform watermarks
+  2. **Smart 9:16 crop** — `crop=ih*9/16:ih` for vertical format (Reels/Shorts)
+  3. **Sharpen** — `unsharp` filter for visual uniqueness
+  4. **Color grading** — gamma/gammaR/gammaG/gammaB randomization via `eq` filter
+  5. **Random bitrate + CRF** — randomized CRF (18-25) and maxrate/bufsize to alter encoding fingerprint
+  6. **Strip audio** — `-an` flag to remove original audio and avoid audio fingerprint detection
+  7. **Metadata capture + AI rewrite** — yt-dlp captures caption/hashtags/description; GPT-4o-mini rewrites caption + generates hashtags + hook + CTA per platform
+  8. **Keyword highlight subtitles** — SRT→ASS conversion with yellow keyword highlighting; CRLF-safe parser
+- **Randomized transforms per platform** (ranges vary): mirror, speed (0.97-1.05x), zoom (1.01-1.05x), brightness, contrast, saturation, border, noise, audio pitch
 - **"Reshuffle" button**: regenerate random transforms before processing
 - **Auto Subtitle toggle**: when ON, automatically transcribes + translates + burns subtitles during reup
+- **Scene detection**: analyzes video for scene changes using ffprobe `select=gt(scene,0.3)`
 - **Advanced Settings** (collapsible): manual text overlay, subtitle style presets (6 styles), manual transcription
-- Supported transformations: mirror (hflip), vertical flip, zoom/crop, brightness/contrast/saturation (combined eq filter), border/padding, speed change, audio pitch shift, noise, text overlay (drawtext), SRT subtitles burn
 - All numeric inputs are clamped to safe ranges; color strings are sanitized
 - Audio-only files skip video filters; output uses appropriate codec
 - Processed video is saved back to library with `[Reup]` prefix in title

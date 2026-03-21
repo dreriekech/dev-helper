@@ -56,6 +56,9 @@ interface DownloadEntry {
   quality: string;
   url: string;
   createdAt: number;
+  caption?: string;
+  hashtags?: string[];
+  description?: string;
 }
 
 const activeDownloads = new Map<string, DownloadEntry>();
@@ -294,11 +297,25 @@ router.post("/video/download", validateApiKey, async (req, res): Promise<void> =
     let videoTitle = title;
     let videoPlatform = detectPlatform(url);
     let videoThumbnail: string | null = null;
+    let videoCaption = "";
+    let videoHashtags: string[] = [];
+    let videoDescription = "";
 
     try {
       const infoObj = JSON.parse(jsonStr);
       videoTitle = infoObj.title || title;
       videoThumbnail = infoObj.thumbnail || null;
+      videoDescription = infoObj.description || "";
+      videoCaption = infoObj.title || "";
+      const descText = `${infoObj.title || ""} ${infoObj.description || ""}`;
+      const tagMatches = descText.match(/#[\w\u00C0-\u024F\u1E00-\u1EFF]+/g);
+      if (tagMatches) {
+        videoHashtags = [...new Set(tagMatches)].slice(0, 30);
+      }
+      if (infoObj.tags && Array.isArray(infoObj.tags)) {
+        const extraTags = infoObj.tags.map((t: string) => `#${t.replace(/^#/, "")}`);
+        videoHashtags = [...new Set([...videoHashtags, ...extraTags])].slice(0, 30);
+      }
     } catch {}
 
     activeDownloads.set(fileId, {
@@ -311,6 +328,9 @@ router.post("/video/download", validateApiKey, async (req, res): Promise<void> =
       quality: quality || "Best",
       url,
       createdAt: Date.now(),
+      caption: videoCaption,
+      hashtags: videoHashtags,
+      description: videoDescription,
     });
 
     const result = DownloadVideoResponse.parse({
@@ -404,6 +424,9 @@ router.get("/video/library", validateApiKey, (_req, res): void => {
       createdAt: entry.createdAt,
       expiresInMinutes: Math.ceil(expiresInMs / 60000),
       streamUrl: `/api/video/stream/${fileId}`,
+      caption: entry.caption || "",
+      hashtags: entry.hashtags || [],
+      description: entry.description || "",
     });
   }
   items.sort((a, b) => b.createdAt - a.createdAt);
@@ -493,6 +516,21 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     const audioFilters: string[] = [];
 
     if (!isAudioOnly) {
+      if (options.removeWatermark === true) {
+        videoFilters.push("delogo=x=iw-120:y=10:w=110:h=40:show=0");
+      }
+      if (options.removeWatermarkArea && typeof options.removeWatermarkArea === "object") {
+        const wx = clamp(options.removeWatermarkArea.x, 0, 3840, 0);
+        const wy = clamp(options.removeWatermarkArea.y, 0, 2160, 0);
+        const ww = clamp(options.removeWatermarkArea.w, 10, 500, 110);
+        const wh = clamp(options.removeWatermarkArea.h, 10, 200, 40);
+        videoFilters.push(`delogo=x=${Math.round(wx)}:y=${Math.round(wy)}:w=${Math.round(ww)}:h=${Math.round(wh)}:show=0`);
+      }
+
+      if (options.cropVertical === true) {
+        videoFilters.push("crop=ih*9/16:ih");
+      }
+
       if (options.mirror === true) {
         videoFilters.push("hflip");
       }
@@ -538,6 +576,21 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       if (noise > 0) {
         videoFilters.push(`noise=alls=${Math.round(noise)}:allf=t`);
       }
+
+      const sharpen = clamp(options.sharpen, 0, 2, 0);
+      if (sharpen > 0) {
+        videoFilters.push(`unsharp=5:5:${sharpen.toFixed(2)}:5:5:${sharpen.toFixed(2)}`);
+      }
+
+      if (options.colorGrading && typeof options.colorGrading === "object") {
+        const gamma = clamp(options.colorGrading.gamma, 0.5, 2, 1);
+        const gammaR = clamp(options.colorGrading.gammaR, 0.5, 2, 1);
+        const gammaG = clamp(options.colorGrading.gammaG, 0.5, 2, 1);
+        const gammaB = clamp(options.colorGrading.gammaB, 0.5, 2, 1);
+        if (gamma !== 1 || gammaR !== 1 || gammaG !== 1 || gammaB !== 1) {
+          videoFilters.push(`eq=gamma=${gamma.toFixed(4)}:gamma_r=${gammaR.toFixed(4)}:gamma_g=${gammaG.toFixed(4)}:gamma_b=${gammaB.toFixed(4)}`);
+        }
+      }
     }
 
     const speed = clamp(options.speed, 0.5, 2, 1);
@@ -551,6 +604,9 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     const audioPitch = clamp(options.audioPitch, 0.5, 2, 1);
     if (audioPitch !== 1) {
       audioFilters.push(`asetrate=44100*${audioPitch.toFixed(4)},aresample=44100`);
+    }
+
+    if (options.stripAudio === true && !isAudioOnly) {
     }
 
     if (!isAudioOnly && options.subtitleText && typeof options.subtitleText === "string") {
@@ -575,21 +631,30 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
     if (!isAudioOnly && options.srtContent && typeof options.srtContent === "string") {
       const srtPath = path.join(DOWNLOAD_DIR, `${newFileId}.srt`);
-      fs.writeFileSync(srtPath, options.srtContent, "utf-8");
-      const fontSize = clamp(options.subtitleFontSize, 8, 48, 14);
-      const escapedSrtPath = srtPath.replace(/:/g, "\\:").replace(/\\/g, "/");
 
-      const subtitleStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
-      const styleMap: Record<string, string> = {
-        classic: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-        outline: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-        highlight: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-        shadow: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-        neon: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-        retro: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
-      };
-      const forceStyle = styleMap[subtitleStyle] || styleMap.classic;
-      videoFilters.push(`subtitles=${escapedSrtPath}:force_style='${forceStyle}'`);
+      if (options.highlightKeywords && Array.isArray(options.highlightKeywords) && options.highlightKeywords.length > 0) {
+        const assContent = srtToAssWithHighlights(options.srtContent, options.highlightKeywords, options.subtitleStyle || "classic", clamp(options.subtitleFontSize, 8, 48, 14));
+        const assPath = path.join(DOWNLOAD_DIR, `${newFileId}.ass`);
+        fs.writeFileSync(assPath, assContent, "utf-8");
+        const escapedAssPath = assPath.replace(/:/g, "\\:").replace(/\\/g, "/");
+        videoFilters.push(`ass=${escapedAssPath}`);
+      } else {
+        fs.writeFileSync(srtPath, options.srtContent, "utf-8");
+        const fontSize = clamp(options.subtitleFontSize, 8, 48, 14);
+        const escapedSrtPath = srtPath.replace(/:/g, "\\:").replace(/\\/g, "/");
+
+        const subtitleStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
+        const styleMap: Record<string, string> = {
+          classic: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+          outline: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+          highlight: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+          shadow: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+          neon: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+          retro: `FontSize=${Math.round(fontSize)},FontName=Arial,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2`,
+        };
+        const forceStyle = styleMap[subtitleStyle] || styleMap.classic;
+        videoFilters.push(`subtitles=${escapedSrtPath}:force_style='${forceStyle}'`);
+      }
     }
 
     if (!isAudioOnly && videoFilters.length > 0) {
@@ -605,10 +670,25 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       args.push("-af", audioFilters.join(","));
     }
 
-    if (!isAudioOnly) {
-      args.push("-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-threads", "0", "-movflags", "+faststart");
+    if (options.stripAudio === true && !isAudioOnly) {
+      args.push("-an");
     }
-    args.push("-c:a", "aac", "-b:a", "128k");
+
+    if (!isAudioOnly) {
+      args.push("-c:v", "libx264", "-preset", "ultrafast", "-threads", "0", "-movflags", "+faststart");
+      const crf = clamp(options.crf, 18, 28, 23);
+      args.push("-crf", String(Math.round(crf)));
+
+      if (options.randomBitrate === true) {
+        const randCrf = 18 + Math.floor(Math.random() * 8);
+        args[args.indexOf("-crf") + 1] = String(randCrf);
+        const randBitrate = 800 + Math.floor(Math.random() * 3200);
+        args.push("-maxrate", `${randBitrate}k`, "-bufsize", `${randBitrate * 2}k`);
+      }
+    }
+    if (options.stripAudio !== true) {
+      args.push("-c:a", "aac", "-b:a", "128k");
+    }
     args.push(outputPath);
 
     await runFfmpeg(args);
@@ -646,6 +726,168 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     } catch {}
     res.status(500).json({ error: err.message || "Failed to process video" });
+  }
+});
+
+function srtToAssWithHighlights(srtContent: string, keywords: string[], style: string, fontSize: number): string {
+  const styleMap: Record<string, { primary: string; outline: string; back: string; outlineW: number; shadow: number }> = {
+    classic: { primary: "&H00FFFFFF", outline: "&H00000000", back: "&H80000000", outlineW: 2, shadow: 1 },
+    outline: { primary: "&H00FFFFFF", outline: "&H00000000", back: "&H00000000", outlineW: 4, shadow: 0 },
+    highlight: { primary: "&H00000000", outline: "&H0000D7FF", back: "&H0000D7FF", outlineW: 0, shadow: 0 },
+    shadow: { primary: "&H00FFFFFF", outline: "&H00000000", back: "&HCC000000", outlineW: 1, shadow: 4 },
+    neon: { primary: "&H00FFFF00", outline: "&H00FF8800", back: "&H00000000", outlineW: 2, shadow: 0 },
+    retro: { primary: "&H0000D7FF", outline: "&H00000000", back: "&H000060FF", outlineW: 3, shadow: 2 },
+  };
+  const s = styleMap[style] || styleMap.classic;
+
+  let ass = `[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 2
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,${Math.round(fontSize)},${s.primary},&H000000FF,${s.outline},${s.back},1,0,0,0,100,100,0,0,1,${s.outlineW},${s.shadow},2,20,20,25,1
+Style: Highlight,Arial,${Math.round(fontSize)},&H0000D7FF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,20,20,25,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  const blocks = srtContent.trim().replace(/\r\n/g, "\n").split(/\n\n+/);
+  const lowerKeywords = keywords.map((k) => k.toLowerCase().trim()).filter(Boolean);
+
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    if (lines.length < 3) continue;
+    const timeLine = lines[1];
+    const textContent = lines.slice(2).join(" ");
+
+    const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+    if (!timeMatch) continue;
+
+    const toAssTime = (h: string, m: string, sec: string, ms: string) =>
+      `${parseInt(h)}:${m}:${sec}.${ms.substring(0, 2)}`;
+
+    const start = toAssTime(timeMatch[1], timeMatch[2], timeMatch[3], timeMatch[4]);
+    const end = toAssTime(timeMatch[5], timeMatch[6], timeMatch[7], timeMatch[8]);
+
+    let assText = textContent;
+    for (const kw of lowerKeywords) {
+      const regex = new RegExp(`(${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+      assText = assText.replace(regex, `{\\c&H0000D7FF&\\b1}$1{\\c${s.primary}&\\b1}`);
+    }
+
+    ass += `Dialogue: 0,${start},${end},Default,,0,0,0,,${assText}\n`;
+  }
+
+  return ass;
+}
+
+router.post("/video/ai-rewrite", validateApiKey, async (req, res): Promise<void> => {
+  const { fileId, platform, lang } = req.body || {};
+
+  if (!fileId) {
+    res.status(400).json({ error: "Missing fileId" });
+    return;
+  }
+
+  const source = activeDownloads.get(fileId);
+  if (!source) {
+    res.status(404).json({ error: "Video not found" });
+    return;
+  }
+
+  const targetLang = lang === "en" ? "English" : "Vietnamese";
+  const platformName = platform || "TikTok";
+
+  try {
+    const chatRes = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a viral social media content creator specializing in ${platformName}. Generate engaging content in ${targetLang}. Return JSON only with this format:
+{
+  "caption": "new engaging caption (max 200 chars)",
+  "hashtags": ["#tag1", "#tag2", ...up to 15 tags],
+  "hook": "attention-grabbing hook for first 3 seconds (max 50 chars)",
+  "cta": "call-to-action text (max 30 chars)"
+}`
+        },
+        {
+          role: "user",
+          content: `Original video title: "${source.title}"
+Original caption: "${source.caption || source.title}"
+Platform: ${source.platform}
+Original hashtags: ${(source.hashtags || []).join(" ")}
+Description: ${(source.description || "").substring(0, 500)}
+
+Rewrite this content for ${platformName} to make it unique and viral. Create completely new caption and hashtags that convey similar meaning but use different wording. Make it engaging and platform-optimized.`
+        }
+      ],
+      temperature: 0.8,
+      response_format: { type: "json_object" },
+    });
+
+    const content = chatRes.choices[0]?.message?.content || "{}";
+    const parsed = JSON.parse(content);
+
+    res.json({
+      caption: parsed.caption || "",
+      hashtags: parsed.hashtags || [],
+      hook: parsed.hook || "",
+      cta: parsed.cta || "",
+      originalCaption: source.caption || source.title,
+      originalHashtags: source.hashtags || [],
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "AI rewrite failed" });
+  }
+});
+
+router.post("/video/detect-scenes", validateApiKey, async (req, res): Promise<void> => {
+  const { fileId } = req.body || {};
+
+  if (!fileId) {
+    res.status(400).json({ error: "Missing fileId" });
+    return;
+  }
+
+  const source = activeDownloads.get(fileId);
+  if (!source || !fs.existsSync(source.filepath)) {
+    res.status(404).json({ error: "Video not found" });
+    return;
+  }
+
+  try {
+    const stderr = await new Promise<string>((resolve, reject) => {
+      const proc = spawn("ffprobe", [
+        "-v", "quiet",
+        "-show_entries", "frame=pts_time",
+        "-of", "csv=p=0",
+        "-f", "lavfi",
+        `movie=${source.filepath.replace(/'/g, "'\\''")},select=gt(scene\\,0.3)`,
+      ], { timeout: 60000 });
+      let output = "";
+      proc.stdout.on("data", (d: Buffer) => { output += d.toString(); });
+      proc.stderr.on("data", (d: Buffer) => { output += d.toString(); });
+      proc.on("close", () => resolve(output));
+      proc.on("error", (e) => reject(e));
+    });
+
+    const timestamps = stderr.split("\n")
+      .map((l) => parseFloat(l.trim()))
+      .filter((n) => !isNaN(n) && n > 0)
+      .sort((a, b) => a - b);
+
+    res.json({
+      sceneCount: timestamps.length + 1,
+      sceneChanges: timestamps.map((t) => Number(t.toFixed(2))),
+    });
+  } catch (err: any) {
+    res.json({ sceneCount: 1, sceneChanges: [] });
   }
 });
 

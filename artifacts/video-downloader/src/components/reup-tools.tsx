@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Wand2, FlipHorizontal, FlipVertical, Gauge, ZoomIn, Sun, Contrast, Palette, Square, Music, Sparkles, RotateCcw, CheckCircle, AlertCircle, Film, ChevronDown, Type, Languages, Mic, ArrowRight, Zap, Settings2, ChevronRight, Shuffle } from "lucide-react";
+import { Wand2, FlipHorizontal, FlipVertical, Gauge, ZoomIn, Sun, Contrast, Palette, Square, Music, Sparkles, RotateCcw, CheckCircle, AlertCircle, Film, ChevronDown, Type, Languages, Mic, ArrowRight, Zap, Settings2, ChevronRight, Shuffle, Scissors, Eye, Volume2, VolumeX, Hash, Crop, Copy, Layers, Shield, ScanSearch } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LibraryItem } from "@/components/library-card";
 import type { Translations } from "@/lib/i18n";
@@ -26,6 +26,14 @@ interface ReupOptions {
   subtitlePosition: "top" | "center" | "bottom";
   subtitleStyle: SubtitleStyle;
   srtContent: string;
+  removeWatermark: boolean;
+  cropVertical: boolean;
+  sharpen: number;
+  stripAudio: boolean;
+  randomBitrate: boolean;
+  crf: number;
+  colorGrading: { gamma: number; gammaR: number; gammaG: number; gammaB: number } | null;
+  highlightKeywords: string[];
 }
 
 const subtitleStylePresets: { id: SubtitleStyle; label: string; labelEn: string; preview: string; desc: string; descEn: string }[] = [
@@ -56,6 +64,14 @@ const defaultOptions: ReupOptions = {
   subtitlePosition: "bottom",
   subtitleStyle: "classic",
   srtContent: "",
+  removeWatermark: false,
+  cropVertical: false,
+  sharpen: 0,
+  stripAudio: false,
+  randomBitrate: false,
+  crf: 23,
+  colorGrading: null,
+  highlightKeywords: [],
 };
 
 type Platform = "tiktok" | "facebook" | "youtube" | "instagram" | "twitter";
@@ -64,7 +80,6 @@ const rand = (min: number, max: number, decimals = 2) => {
   const val = Math.random() * (max - min) + min;
   return Number(val.toFixed(decimals));
 };
-
 const randBool = () => Math.random() > 0.5;
 
 const platformColors: Record<Platform, { bg: string; border: string; text: string; icon: string }> = {
@@ -77,6 +92,15 @@ const platformColors: Record<Platform, { bg: string; border: string; text: strin
 
 function generateSmartOptions(platform: Platform): ReupOptions {
   const base: ReupOptions = { ...defaultOptions };
+  base.removeWatermark = true;
+  base.randomBitrate = true;
+  base.sharpen = rand(0.1, 0.5);
+  base.colorGrading = {
+    gamma: rand(0.97, 1.04),
+    gammaR: rand(0.98, 1.03),
+    gammaG: rand(0.98, 1.03),
+    gammaB: rand(0.98, 1.03),
+  };
 
   switch (platform) {
     case "tiktok":
@@ -87,6 +111,7 @@ function generateSmartOptions(platform: Platform): ReupOptions {
       base.noise = Math.floor(rand(1, 4, 0));
       base.brightness = rand(-0.03, 0.05);
       base.saturation = rand(0.95, 1.1);
+      base.cropVertical = true;
       break;
     case "facebook":
       base.mirror = randBool();
@@ -106,6 +131,7 @@ function generateSmartOptions(platform: Platform): ReupOptions {
       base.noise = Math.floor(rand(1, 3, 0));
       base.audioPitch = rand(0.99, 1.02);
       base.mirror = randBool();
+      base.cropVertical = true;
       break;
     case "instagram":
       base.mirror = randBool();
@@ -115,6 +141,7 @@ function generateSmartOptions(platform: Platform): ReupOptions {
       base.noise = Math.floor(rand(1, 3, 0));
       base.brightness = rand(0.01, 0.06);
       base.contrast = rand(1.02, 1.08);
+      base.cropVertical = true;
       break;
     case "twitter":
       base.speed = rand(0.98, 1.03);
@@ -126,6 +153,15 @@ function generateSmartOptions(platform: Platform): ReupOptions {
   }
 
   return base;
+}
+
+interface AiRewriteResult {
+  caption: string;
+  hashtags: string[];
+  hook: string;
+  cta: string;
+  originalCaption: string;
+  originalHashtags: string[];
 }
 
 interface ReupToolsProps {
@@ -154,6 +190,12 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
     srtContent: string;
   } | null>(null);
   const [generatedPreview, setGeneratedPreview] = useState<ReupOptions | null>(null);
+  const [aiRewriting, setAiRewriting] = useState(false);
+  const [aiResult, setAiResult] = useState<AiRewriteResult | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [detectingScenes, setDetectingScenes] = useState(false);
+  const [sceneResult, setSceneResult] = useState<{ sceneCount: number; sceneChanges: number[] } | null>(null);
+  const [keywordsInput, setKeywordsInput] = useState("");
 
   const selectedItem = libraryItems.find((i) => i.fileId === selectedFileId);
 
@@ -193,15 +235,70 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
     setOptions((prev) => ({ ...prev, [key]: value }));
   };
 
+  const copyToClipboard = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {}
+  };
+
+  const handleAiRewrite = async () => {
+    if (!selectedFileId || aiRewriting) return;
+    setAiRewriting(true);
+    setAiResult(null);
+
+    try {
+      const res = await fetch("/api/video/ai-rewrite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+        body: JSON.stringify({ fileId: selectedFileId, platform: platformNames[platform], lang }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setAiResult(data);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setResult({ success: false, message: data.error || t.reupFailed });
+      }
+    } catch {
+      setResult({ success: false, message: t.reupFailed });
+    } finally {
+      setAiRewriting(false);
+    }
+  };
+
+  const handleDetectScenes = async () => {
+    if (!selectedFileId || detectingScenes) return;
+    setDetectingScenes(true);
+    setSceneResult(null);
+
+    try {
+      const res = await fetch("/api/video/detect-scenes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": apiKey },
+        body: JSON.stringify({ fileId: selectedFileId }),
+      });
+
+      if (res.ok) {
+        setSceneResult(await res.json());
+      }
+    } catch {} finally {
+      setDetectingScenes(false);
+    }
+  };
+
   const handleSmartReup = async () => {
     if (!selectedFileId || processing) return;
     setProcessing(true);
     setResult(null);
 
     try {
-      const smartOpts = generatedPreview || generateSmartOptions(platform);
+      const smartOpts = generatedPreview ? { ...generatedPreview } : generateSmartOptions(platform);
 
       if (autoSubtitle) {
+        setTranscribing(true);
         const transcribeRes = await fetch("/api/video/transcribe", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-api-key": apiKey },
@@ -213,7 +310,14 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
           smartOpts.srtContent = data.srtContent;
           setTranscribeResult(data);
         }
+        setTranscribing(false);
       }
+
+      if (keywordsInput.trim()) {
+        smartOpts.highlightKeywords = keywordsInput.split(",").map((k) => k.trim()).filter(Boolean);
+      }
+
+      smartOpts.stripAudio = options.stripAudio;
 
       if (showAdvanced) {
         Object.assign(smartOpts, {
@@ -247,6 +351,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
       setResult({ success: false, message: t.reupFailed });
     } finally {
       setProcessing(false);
+      setTranscribing(false);
     }
   };
 
@@ -332,7 +437,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                   {libraryItems.map((item) => (
                     <button
                       key={item.fileId}
-                      onClick={() => { setSelectedFileId(item.fileId); setShowDropdown(false); setResult(null); setTranscribeResult(null); generatePreview(platform); }}
+                      onClick={() => { setSelectedFileId(item.fileId); setShowDropdown(false); setResult(null); setTranscribeResult(null); setAiResult(null); setSceneResult(null); generatePreview(platform); }}
                       className={cn(
                         "w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 transition-colors text-left",
                         item.fileId === selectedFileId && "bg-cyan-500/10"
@@ -359,6 +464,31 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
           </div>
         )}
       </div>
+
+      {selectedItem && (selectedItem.caption || (selectedItem.hashtags && selectedItem.hashtags.length > 0)) && (
+        <div className="bg-[#12121a] rounded-xl border border-white/5 p-4">
+          <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5" />
+            {t.reupMetadata}
+          </h3>
+          {selectedItem.caption && (
+            <div className="mb-2">
+              <span className="text-[9px] text-white/30 uppercase">{t.reupOriginalCaption}</span>
+              <p className="text-[11px] text-white/60 mt-0.5 line-clamp-2">{selectedItem.caption}</p>
+            </div>
+          )}
+          {selectedItem.hashtags && selectedItem.hashtags.length > 0 && (
+            <div>
+              <span className="text-[9px] text-white/30 uppercase">{t.reupOriginalHashtags}</span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {selectedItem.hashtags.slice(0, 15).map((tag, i) => (
+                  <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400/70">{tag}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {libraryItems.length > 0 && (
         <>
@@ -396,8 +526,8 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
             <div className="bg-[#12121a] rounded-xl border border-white/5 p-4">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
-                  {lang === "vi" ? "Biến đổi tự động" : "Auto Transforms"}
+                  <Shield className="w-3.5 h-3.5 text-emerald-400" />
+                  {t.reupAntiDetection}
                 </h3>
                 <button
                   onClick={handleShuffle}
@@ -408,50 +538,43 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                 </button>
               </div>
               <div className="flex flex-wrap gap-1">
+                {generatedPreview.removeWatermark && formatChange(t.reupRemoveWatermark, "✓")}
+                {generatedPreview.cropVertical && formatChange(t.reupSmartCrop, "9:16")}
                 {generatedPreview.mirror && formatChange(lang === "vi" ? "Lật" : "Mirror", "↔")}
                 {generatedPreview.speed !== 1 && formatChange(lang === "vi" ? "Tốc độ" : "Speed", `${generatedPreview.speed}x`)}
-                {generatedPreview.zoom > 1 && formatChange(lang === "vi" ? "Zoom" : "Zoom", `${generatedPreview.zoom}x`)}
+                {generatedPreview.zoom > 1 && formatChange("Zoom", `${generatedPreview.zoom}x`)}
                 {generatedPreview.brightness !== 0 && formatChange(lang === "vi" ? "Sáng" : "Bright", `${generatedPreview.brightness > 0 ? "+" : ""}${generatedPreview.brightness}`)}
                 {generatedPreview.contrast !== 1 && formatChange(lang === "vi" ? "Tương phản" : "Contrast", `${generatedPreview.contrast}`)}
                 {generatedPreview.saturation !== 1 && formatChange(lang === "vi" ? "Bão hòa" : "Sat", `${generatedPreview.saturation}`)}
                 {generatedPreview.border > 0 && formatChange(lang === "vi" ? "Viền" : "Border", `${generatedPreview.border}px`)}
                 {generatedPreview.noise > 0 && formatChange(lang === "vi" ? "Nhiễu" : "Noise", `${generatedPreview.noise}`)}
-                {generatedPreview.audioPitch !== 1 && formatChange(lang === "vi" ? "Pitch" : "Pitch", `${generatedPreview.audioPitch}x`)}
+                {generatedPreview.audioPitch !== 1 && formatChange("Pitch", `${generatedPreview.audioPitch}x`)}
+                {generatedPreview.sharpen > 0 && formatChange(t.reupSharpen, `${generatedPreview.sharpen}`)}
+                {generatedPreview.randomBitrate && formatChange("Bitrate", "Random")}
+                {generatedPreview.colorGrading && formatChange(t.reupColorGrading, "✓")}
               </div>
               <p className="text-[9px] text-white/20 mt-2">
-                {lang === "vi" ? "Mỗi lần reup tạo ra video khác nhau — không bao giờ trùng hash" : "Each reup creates a unique video — never the same hash"}
+                {lang === "vi" ? "Mỗi lần reup tạo video khác nhau — watermark gốc tự động bị xóa" : "Each reup creates a unique video — original watermark auto-removed"}
               </p>
             </div>
           )}
 
-          <div className="bg-[#12121a] rounded-xl border border-white/5 p-4">
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <div
-                  onClick={() => setAutoSubtitle(!autoSubtitle)}
-                  className={cn(
-                    "w-8 h-4.5 rounded-full transition-all relative cursor-pointer",
-                    autoSubtitle ? "bg-emerald-500" : "bg-white/10"
-                  )}
-                  style={{ width: 32, height: 18 }}
-                >
-                  <div
-                    className={cn(
-                      "absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-all",
-                      autoSubtitle ? "left-[16px]" : "left-[2px]"
-                    )}
-                  />
-                </div>
-                <div>
-                  <span className="text-xs font-semibold text-white/70">{t.reupAutoSub}</span>
-                  <p className="text-[9px] text-white/30">{t.reupAutoSubDesc}</p>
-                </div>
-              </label>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-[#12121a] rounded-xl border border-white/5 p-3">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer" onClick={() => setAutoSubtitle(!autoSubtitle)}>
+                  <ToggleSwitch on={autoSubtitle} />
+                  <div>
+                    <span className="text-[11px] font-semibold text-white/70">{t.reupAutoSub}</span>
+                    <p className="text-[8px] text-white/30">{t.reupAutoSubDesc}</p>
+                  </div>
+                </label>
+              </div>
               {autoSubtitle && (
                 <select
                   value={targetLang}
                   onChange={(e) => setTargetLang(e.target.value)}
-                  className="bg-[#0a0a10] rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/70 font-medium outline-none cursor-pointer"
+                  className="mt-2 w-full bg-[#0a0a10] rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/70 outline-none cursor-pointer"
                 >
                   <option value="vi">{t.reupSubLangVi}</option>
                   <option value="en">{t.reupSubLangEn}</option>
@@ -459,6 +582,150 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                 </select>
               )}
             </div>
+
+            <div className="bg-[#12121a] rounded-xl border border-white/5 p-3">
+              <label className="flex items-center gap-2 cursor-pointer" onClick={() => updateOption("stripAudio", !options.stripAudio)}>
+                <ToggleSwitch on={options.stripAudio} />
+                <div>
+                  <span className="text-[11px] font-semibold text-white/70 flex items-center gap-1">
+                    {options.stripAudio ? <VolumeX className="w-3 h-3 text-red-400" /> : <Volume2 className="w-3 h-3 text-white/40" />}
+                    {t.reupStripAudio}
+                  </span>
+                  <p className="text-[8px] text-white/30">{t.reupStripAudioDesc}</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          {selectedFileId && (
+            <div className="bg-[#12121a] rounded-xl border border-white/5 p-4 space-y-3">
+              <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center gap-1.5">
+                <Wand2 className="w-3.5 h-3.5 text-violet-400" />
+                {t.reupAiRewrite}
+              </h3>
+              <p className="text-[9px] text-white/30">{t.reupAiRewriteDesc}</p>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAiRewrite}
+                  disabled={aiRewriting}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 border border-violet-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
+                >
+                  {aiRewriting ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" />
+                      {t.reupAiRewriting}
+                    </>
+                  ) : (
+                    <>
+                      <Wand2 className="w-3 h-3" />
+                      {t.reupAiRewrite}
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={handleDetectScenes}
+                  disabled={detectingScenes}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center gap-1.5"
+                >
+                  {detectingScenes ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
+                      {t.reupSceneDetecting}
+                    </>
+                  ) : (
+                    <>
+                      <ScanSearch className="w-3 h-3" />
+                      {t.reupSceneDetect}
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {sceneResult && (
+                <div className="flex items-center gap-2 text-[10px]">
+                  <Eye className="w-3 h-3 text-amber-400" />
+                  <span className="text-amber-400 font-bold">{sceneResult.sceneCount} {t.reupScenes}</span>
+                  {sceneResult.sceneChanges.length > 0 && (
+                    <span className="text-white/30">
+                      ({sceneResult.sceneChanges.slice(0, 8).map((t) => `${t}s`).join(", ")}{sceneResult.sceneChanges.length > 8 ? "..." : ""})
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <AnimatePresence>
+                {aiResult && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="space-y-2 bg-[#0a0a10] rounded-lg border border-white/10 p-3"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <CheckCircle className="w-3.5 h-3.5 text-violet-400" />
+                      <span className="text-[10px] text-violet-400 font-bold">{t.reupAiRewriteDone}</span>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[9px] text-white/30 uppercase">Caption</span>
+                          <button onClick={() => copyToClipboard(aiResult.caption, "caption")} className="text-[9px] text-cyan-400/60 hover:text-cyan-400 flex items-center gap-0.5">
+                            <Copy className="w-2.5 h-2.5" />
+                            {copiedField === "caption" ? t.reupCopied : t.reupCopyCaption}
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-white/70 leading-relaxed">{aiResult.caption}</p>
+                      </div>
+
+                      {aiResult.hook && (
+                        <div>
+                          <span className="text-[9px] text-white/30 uppercase">{t.reupHook}</span>
+                          <p className="text-[11px] text-amber-400/80 font-medium mt-0.5">{aiResult.hook}</p>
+                        </div>
+                      )}
+
+                      {aiResult.cta && (
+                        <div>
+                          <span className="text-[9px] text-white/30 uppercase">{t.reupCta}</span>
+                          <p className="text-[11px] text-emerald-400/80 font-medium mt-0.5">{aiResult.cta}</p>
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[9px] text-white/30 uppercase">Hashtags</span>
+                          <button onClick={() => copyToClipboard(aiResult.hashtags.join(" "), "hashtags")} className="text-[9px] text-cyan-400/60 hover:text-cyan-400 flex items-center gap-0.5">
+                            <Copy className="w-2.5 h-2.5" />
+                            {copiedField === "hashtags" ? t.reupCopied : t.reupCopyHashtags}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {aiResult.hashtags.map((tag, i) => (
+                            <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400/80">{tag}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+          <div className="bg-[#12121a] rounded-xl border border-white/5 p-3">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Hash className="w-3.5 h-3.5 text-amber-400" />
+              <span className="text-[11px] font-semibold text-white/50">{t.reupHighlightKeywords}</span>
+            </div>
+            <input
+              type="text"
+              value={keywordsInput}
+              onChange={(e) => setKeywordsInput(e.target.value)}
+              placeholder={t.reupHighlightKeywordsPlaceholder}
+              className="w-full bg-[#0a0a10] rounded-lg border border-white/10 focus:border-amber-500/40 transition-colors px-3 py-2 text-[11px] placeholder:text-white/20 text-white/70 outline-none"
+            />
           </div>
 
           <div className="bg-[#12121a] rounded-xl border border-white/5 overflow-hidden">
@@ -707,36 +974,14 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
   );
 }
 
-function SliderControl({ icon, label, value, min, max, step, defaultValue, format, onChange }: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  defaultValue: number;
-  format: (v: number) => string;
-  onChange: (v: number) => void;
-}) {
-  const isChanged = Math.abs(value - defaultValue) > step / 2;
-
+function ToggleSwitch({ on }: { on: boolean }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5">
-        {icon}
-        <span className="text-xs font-medium text-white/60">{label}</span>
-        <span className={cn("text-[10px] ml-auto font-mono", isChanged ? "text-cyan-400" : "text-white/30")}>
-          {format(value)}
-        </span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-400"
+    <div
+      className={cn("rounded-full transition-all relative cursor-pointer shrink-0", on ? "bg-emerald-500" : "bg-white/10")}
+      style={{ width: 32, height: 18 }}
+    >
+      <div
+        className={cn("absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-all", on ? "left-[16px]" : "left-[2px]")}
       />
     </div>
   );
