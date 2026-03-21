@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Download, Trash2, Film, RefreshCw, FolderOpen, Clock, HardDrive, ExternalLink, Play, X } from "lucide-react";
+import { useState, useRef, useCallback } from "react";
+import { Download, Trash2, Film, RefreshCw, FolderOpen, Clock, HardDrive, ExternalLink, Play, X, Volume2, VolumeX } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatBytes, cn } from "@/lib/utils";
 import type { Translations } from "@/lib/i18n";
@@ -29,6 +29,57 @@ interface LibraryCardProps {
   onRemove: (fileId: string) => void;
   onClearAll: () => void;
   t: Translations;
+}
+
+function PreviewPlayer({ streamUrl, unmuteLabel }: { streamUrl: string; unmuteLabel: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isMuted, setIsMuted] = useState(true);
+
+  const handleVideoLoaded = useCallback(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    vid.muted = true;
+    vid.play().then(() => {
+      vid.muted = false;
+      setIsMuted(false);
+    }).catch(() => {
+      setIsMuted(true);
+    });
+  }, []);
+
+  const toggleMute = () => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    vid.muted = !vid.muted;
+    setIsMuted(vid.muted);
+    if (!vid.muted && vid.paused) {
+      vid.play().catch(() => {});
+    }
+  };
+
+  return (
+    <div className="bg-black relative group">
+      <video
+        ref={videoRef}
+        src={streamUrl}
+        controls
+        preload="auto"
+        playsInline
+        onLoadedData={handleVideoLoaded}
+        className="w-full max-h-[70vh] object-contain"
+        controlsList="nodownload"
+      />
+      {isMuted && (
+        <button
+          onClick={toggleMute}
+          className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-sm border border-white/20 text-white text-[10px] font-bold hover:bg-white/20 transition-all z-10"
+        >
+          <VolumeX className="w-3.5 h-3.5 text-amber-400" />
+          <span>{unmuteLabel}</span>
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function LibraryCard({ items, loading, onRefresh, onSaveToDevice, onRemove, onClearAll, t }: LibraryCardProps) {
@@ -216,17 +267,7 @@ export function LibraryCard({ items, loading, onRefresh, onSaveToDevice, onRemov
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="bg-black">
-                <video
-                  src={previewItem.streamUrl}
-                  controls
-                  autoPlay
-                  preload="auto"
-                  playsInline
-                  className="w-full max-h-[70vh] object-contain"
-                  controlsList="nodownload"
-                />
-              </div>
+              <PreviewPlayer streamUrl={previewItem.streamUrl} unmuteLabel={t.unmute} />
               <div className="flex items-center justify-between px-4 py-3 border-t border-white/5">
                 <div className="flex items-center gap-2 text-[10px] text-white/30">
                   <span className="uppercase font-bold">{previewItem.platform}</span>

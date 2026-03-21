@@ -20,6 +20,52 @@ const openai = new OpenAI({
 
 const router: IRouter = Router();
 
+const APP_VERSION = "1.2.0";
+const APP_CHANGELOG: Record<string, { date: string; changes_vi: string[]; changes_en: string[] }> = {
+  "1.2.0": {
+    date: "2026-03-21",
+    changes_vi: [
+      "Tích hợp Vbee AI Voice cho giọng nói tiếng Việt tự nhiên",
+      "8 giọng nói Vbee (Bắc/Nam, Nam/Nữ)",
+      "Cải thiện trình xem trước video với hỗ trợ âm thanh",
+      "Hệ thống cập nhật phiên bản mới",
+    ],
+    changes_en: [
+      "Integrated Vbee AI Voice for natural Vietnamese voices",
+      "8 Vbee voices (North/South, Male/Female)",
+      "Improved video preview player with audio support",
+      "New version update system",
+    ],
+  },
+  "1.1.0": {
+    date: "2026-03-20",
+    changes_vi: [
+      "Voice AI với ElevenLabs TTS",
+      "AI viết lại caption với GPT-4o-mini",
+      "Phụ đề highlight từ khóa",
+      "8+ tính năng chống phát hiện Reup",
+    ],
+    changes_en: [
+      "Voice AI with ElevenLabs TTS",
+      "AI caption rewrite with GPT-4o-mini",
+      "Keyword highlight subtitles",
+      "8+ anti-detection Reup features",
+    ],
+  },
+  "1.0.0": {
+    date: "2026-03-19",
+    changes_vi: ["Phiên bản đầu tiên - Tải video không watermark"],
+    changes_en: ["Initial release - Watermark-free video download"],
+  },
+};
+
+router.get("/video/version", (_req, res): void => {
+  res.json({
+    version: APP_VERSION,
+    changelog: APP_CHANGELOG,
+  });
+});
+
 const VALID_KEYS = (process.env.VALID_API_KEYS || "").split(",").map((k) => k.trim()).filter(Boolean);
 
 function validateApiKey(req: Request, res: Response, next: NextFunction): void {

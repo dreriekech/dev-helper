@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, Clipboard, X, Key, LogOut, Infinity, FolderOpen, Wand2 } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, Clipboard, X, Key, LogOut, Infinity, FolderOpen, Wand2, ArrowUpCircle, Sparkles } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useExtractVideoInfo, useDownloadVideo, setApiKey, type VideoFormat } from "@workspace/api-client-react";
 import { VideoCard } from "@/components/video-card";
@@ -11,7 +11,26 @@ import { useLang, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const KEY_STORAGE = "vd_api_key";
+const VERSION_STORAGE = "haxmax_version";
+const LOCAL_VERSION = "1.2.0";
 type Tab = "download" | "library" | "reup";
+
+interface VersionInfo {
+  version: string;
+  changelog: Record<string, { date: string; changes_vi: string[]; changes_en: string[] }>;
+}
+
+function isNewerVersion(server: string, local: string): boolean {
+  const s = server.split(".").map(Number);
+  const l = local.split(".").map(Number);
+  for (let i = 0; i < Math.max(s.length, l.length); i++) {
+    const sv = s[i] || 0;
+    const lv = l[i] || 0;
+    if (sv > lv) return true;
+    if (sv < lv) return false;
+  }
+  return false;
+}
 
 const platforms = [
   { icon: Youtube, name: "YouTube", color: "text-red-500" },
@@ -227,12 +246,36 @@ export default function Home() {
   const { downloads, addDownload, clearHistory } = useRecentDownloads();
   const { lang, setLang, t } = useLang();
   const library = useLibrary(apiKeyValue);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const [showUpdate, setShowUpdate] = useState(false);
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(() => {
+    try { return localStorage.getItem(VERSION_STORAGE + "_dismissed"); } catch { return null; }
+  });
 
   useEffect(() => {
     if (apiKeyValue) {
       setApiKey(apiKeyValue);
     }
   }, [apiKeyValue]);
+
+  useEffect(() => {
+    const checkVersion = async () => {
+      try {
+        const res = await fetch("/api/video/version");
+        if (res.ok) {
+          const data: VersionInfo = await res.json();
+          setVersionInfo(data);
+          if (isNewerVersion(data.version, LOCAL_VERSION) && data.version !== dismissedVersion) {
+            setShowUpdate(true);
+          }
+          try { localStorage.setItem(VERSION_STORAGE, LOCAL_VERSION); } catch {}
+        }
+      } catch {}
+    };
+    checkVersion();
+    const interval = setInterval(checkVersion, 300000);
+    return () => clearInterval(interval);
+  }, [dismissedVersion]);
 
   const extractMutation = useExtractVideoInfo();
   const downloadMutation = useDownloadVideo();
@@ -315,6 +358,7 @@ export default function Home() {
         <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-black text-lg tracking-tight bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">Haxmax</span>
+            <span className="text-[9px] font-mono text-white/20 bg-white/5 px-1.5 py-0.5 rounded">v{LOCAL_VERSION}</span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -348,6 +392,59 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      <AnimatePresence>
+        {showUpdate && versionInfo && versionInfo.version !== LOCAL_VERSION && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="bg-gradient-to-r from-cyan-500/10 via-violet-500/10 to-fuchsia-500/10 border-b border-cyan-500/20">
+              <div className="max-w-6xl mx-auto px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                    <Sparkles className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs font-bold text-cyan-400">{t.updateAvailable}</span>
+                    <span className="text-[9px] font-mono bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded">v{LOCAL_VERSION} → v{versionInfo.version}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] text-white/50 mb-1 font-semibold">{t.updateChangelog}:</div>
+                    <ul className="space-y-0.5">
+                      {(lang === "vi" ? versionInfo.changelog[versionInfo.version]?.changes_vi : versionInfo.changelog[versionInfo.version]?.changes_en)?.map((c, i) => (
+                        <li key={i} className="text-[10px] text-white/60 flex items-center gap-1.5">
+                          <span className="w-1 h-1 rounded-full bg-cyan-400/50 shrink-0" />
+                          {c}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/20 transition-all"
+                    >
+                      <ArrowUpCircle className="w-3 h-3" />
+                      {t.updateNow}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowUpdate(false);
+                        setDismissedVersion(versionInfo.version);
+                        try { localStorage.setItem(VERSION_STORAGE + "_dismissed", versionInfo.version); } catch {}
+                      }}
+                      className="p-1.5 rounded-md text-white/30 hover:text-white/60 hover:bg-white/5 transition-all"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <nav className="border-b border-white/5 bg-[#0c0c14]/60">
         <div className="max-w-6xl mx-auto px-4 flex">

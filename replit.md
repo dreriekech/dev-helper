@@ -112,8 +112,17 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 ### Library Preview
 - Video preview modal in library — click thumbnail or play button to open full video player
 - Modal shows video title, quality badge, platform info, file size
-- Auto-play with native video controls
-- Save-to-device button available within the preview modal
+- Smart autoplay with audio: starts muted (browser policy), auto-unmutes if allowed, shows "Unmute" button overlay if not
+- Native video controls + save-to-device button within preview modal
+
+### Version Update System
+- `GET /api/video/version` — Returns current server version + full changelog (no auth required)
+- Frontend checks version on load and every 5 minutes
+- If server version > client `LOCAL_VERSION` constant, shows animated update banner below header
+- Banner shows changelog in current language (VN/EN), "Update now" (reload) and "Dismiss" buttons
+- Dismissed version saved to localStorage to avoid repeat prompts
+- Version badge (`v1.2.0`) shown in header next to Haxmax logo
+- To release a new version: update `APP_VERSION` + `APP_CHANGELOG` in `video.ts`, update `LOCAL_VERSION` in `home.tsx`
 
 ### Backend Logic
 - Uses `yt-dlp` as a subprocess for video extraction and downloading
