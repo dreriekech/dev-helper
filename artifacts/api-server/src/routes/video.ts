@@ -40,7 +40,19 @@ if (!fs.existsSync(DOWNLOAD_DIR)) {
   fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
 }
 
-const activeDownloads = new Map<string, { filepath: string; filename: string; filesize: number | null }>();
+interface DownloadEntry {
+  filepath: string;
+  filename: string;
+  filesize: number | null;
+  title: string;
+  platform: string;
+  thumbnail: string | null;
+  quality: string;
+  url: string;
+  createdAt: number;
+}
+
+const activeDownloads = new Map<string, DownloadEntry>();
 
 setInterval(() => {
   const now = Date.now();
@@ -273,7 +285,27 @@ router.post("/video/download", validateApiKey, async (req, res): Promise<void> =
     const ext = path.extname(downloadedFile) || ".mp4";
     const filename = `${title}${ext}`;
 
-    activeDownloads.set(fileId, { filepath, filename, filesize: stat.size });
+    let videoTitle = title;
+    let videoPlatform = detectPlatform(url);
+    let videoThumbnail: string | null = null;
+
+    try {
+      const infoObj = JSON.parse(jsonStr);
+      videoTitle = infoObj.title || title;
+      videoThumbnail = infoObj.thumbnail || null;
+    } catch {}
+
+    activeDownloads.set(fileId, {
+      filepath,
+      filename,
+      filesize: stat.size,
+      title: videoTitle,
+      platform: videoPlatform,
+      thumbnail: videoThumbnail,
+      quality: quality || "Best",
+      url,
+      createdAt: Date.now(),
+    });
 
     const result = DownloadVideoResponse.parse({
       fileId,
@@ -316,15 +348,61 @@ router.get("/video/stream/:fileId", async (req, res): Promise<void> => {
 
   const stream = fs.createReadStream(download.filepath);
   stream.pipe(res);
+});
 
-  stream.on("end", () => {
-    setTimeout(() => {
-      try {
-        fs.unlinkSync(download.filepath);
-        activeDownloads.delete(fileId);
-      } catch {}
-    }, 60000);
-  });
+router.get("/video/library", validateApiKey, (_req, res): void => {
+  const items = [];
+  const now = Date.now();
+  for (const [fileId, entry] of activeDownloads.entries()) {
+    if (!fs.existsSync(entry.filepath)) {
+      activeDownloads.delete(fileId);
+      continue;
+    }
+    const expiresInMs = Math.max(0, 30 * 60 * 1000 - (now - entry.createdAt));
+    items.push({
+      fileId,
+      filename: entry.filename,
+      filesize: entry.filesize,
+      title: entry.title,
+      platform: entry.platform,
+      thumbnail: entry.thumbnail,
+      quality: entry.quality,
+      url: entry.url,
+      createdAt: entry.createdAt,
+      expiresInMinutes: Math.ceil(expiresInMs / 60000),
+      streamUrl: `/api/video/stream/${fileId}`,
+    });
+  }
+  items.sort((a, b) => b.createdAt - a.createdAt);
+  res.json({ items });
+});
+
+router.delete("/video/library/:fileId", validateApiKey, (req, res): void => {
+  const { fileId } = req.params;
+  const entry = activeDownloads.get(fileId);
+  if (!entry) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+  try {
+    if (fs.existsSync(entry.filepath)) {
+      fs.unlinkSync(entry.filepath);
+    }
+  } catch {}
+  activeDownloads.delete(fileId);
+  res.json({ success: true });
+});
+
+router.delete("/video/library", validateApiKey, (_req, res): void => {
+  for (const [fileId, entry] of activeDownloads.entries()) {
+    try {
+      if (fs.existsSync(entry.filepath)) {
+        fs.unlinkSync(entry.filepath);
+      }
+    } catch {}
+    activeDownloads.delete(fileId);
+  }
+  res.json({ success: true });
 });
 
 export default router;

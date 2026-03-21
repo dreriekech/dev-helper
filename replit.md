@@ -52,8 +52,11 @@ artifacts-monorepo/
 ### Endpoints
 - `POST /api/video/validate-key` — Validate an API key (no auth required)
 - `POST /api/video/extract` — Extract video metadata and available formats from a URL (requires API key)
-- `POST /api/video/download` — Download a video with specified quality, returns stream URL (requires API key)
+- `POST /api/video/download` — Download a video with specified quality, stores in library (requires API key)
 - `GET /api/video/stream/:fileId` — Stream a downloaded video file (uses temporary UUID, no key needed)
+- `GET /api/video/library` — List all downloaded files in the library with metadata (requires API key)
+- `DELETE /api/video/library/:fileId` — Remove a specific file from the library (requires API key)
+- `DELETE /api/video/library` — Clear all files from the library (requires API key)
 
 ### Supported Platforms
 YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bilibili, Pinterest, Reddit, Twitch, Snapchat, LinkedIn, Threads
@@ -62,11 +65,18 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 - 4K (2160p), 1440p, 1080p Full HD, 720p HD, 480p SD, 360p
 - Audio Only (MP3)
 
+### Library Feature
+- Downloaded videos are stored in a server-side library before user saves to device
+- Library shows video title, platform, quality, file size, and expiration time
+- Each file auto-expires after 30 minutes (server cleanup interval)
+- Users can save individual files to device, remove files, or clear entire library
+- Library auto-refreshes every 60 seconds on the frontend
+
 ### Backend Logic
 - Uses `yt-dlp` as a subprocess for video extraction and downloading
 - Uses `ffmpeg` for video/audio merging and format conversion
 - Files stored temporarily in system temp directory, auto-cleaned after 30 minutes
-- Files deleted after streaming (with 60s grace period)
+- `activeDownloads` Map stores metadata (title, platform, thumbnail, quality, timestamps)
 
 ## TypeScript & Composite Projects
 

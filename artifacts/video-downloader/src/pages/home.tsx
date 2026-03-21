@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, Clipboard, X, Key, LogOut, Infinity } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useExtractVideoInfo, useDownloadVideo, setApiKey, type VideoFormat } from "@workspace/api-client-react";
 import { VideoCard } from "@/components/video-card";
 import { HistoryCard } from "@/components/history-card";
+import { LibraryCard, type LibraryItem } from "@/components/library-card";
 import { useRecentDownloads } from "@/hooks/use-recent-downloads";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -163,6 +164,58 @@ function KeyScreen({ onAuth, lang, setLang, t }: {
   );
 }
 
+function useLibrary(apiKey: string | null) {
+  const [items, setItems] = useState<LibraryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const fetchLibrary = useCallback(async () => {
+    if (!apiKey) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/video/library", {
+        headers: { "x-api-key": apiKey },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setItems(data.items || []);
+      }
+    } catch {
+    } finally {
+      setLoading(false);
+    }
+  }, [apiKey]);
+
+  useEffect(() => {
+    fetchLibrary();
+    const interval = setInterval(fetchLibrary, 60000);
+    return () => clearInterval(interval);
+  }, [fetchLibrary]);
+
+  const removeItem = useCallback(async (fileId: string) => {
+    if (!apiKey) return;
+    try {
+      await fetch(`/api/video/library/${fileId}`, {
+        method: "DELETE",
+        headers: { "x-api-key": apiKey },
+      });
+      setItems((prev) => prev.filter((i) => i.fileId !== fileId));
+    } catch {}
+  }, [apiKey]);
+
+  const clearAll = useCallback(async () => {
+    if (!apiKey) return;
+    try {
+      await fetch("/api/video/library", {
+        method: "DELETE",
+        headers: { "x-api-key": apiKey },
+      });
+      setItems([]);
+    } catch {}
+  }, [apiKey]);
+
+  return { items, loading, refresh: fetchLibrary, removeItem, clearAll };
+}
+
 export default function Home() {
   const [apiKeyValue, setApiKeyValue] = useState<string | null>(() => {
     try {
@@ -174,6 +227,7 @@ export default function Home() {
   const [url, setUrl] = useState("");
   const { downloads, addDownload, clearHistory } = useRecentDownloads();
   const { lang, setLang, t } = useLang();
+  const library = useLibrary(apiKeyValue);
 
   useEffect(() => {
     if (apiKeyValue) {
@@ -229,14 +283,6 @@ export default function Home() {
         }
       });
 
-      const a = document.createElement("a");
-      a.href = res.streamUrl;
-      a.download = res.filename || "video-download";
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-
       addDownload({
         id: res.fileId || crypto.randomUUID(),
         title: extractMutation.data.title,
@@ -245,9 +291,21 @@ export default function Home() {
         quality: format.quality,
         url: url.trim()
       });
+
+      library.refresh();
     } catch {
       alert(t.downloadFailed);
     }
+  };
+
+  const handleSaveToDevice = (item: LibraryItem) => {
+    const a = document.createElement("a");
+    a.href = item.streamUrl;
+    a.download = item.filename || "video-download";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const maskedKey = apiKeyValue.slice(0, 3) + "•".repeat(Math.max(0, apiKeyValue.length - 7)) + apiKeyValue.slice(-4);
@@ -378,6 +436,16 @@ export default function Home() {
                 />
               )}
             </AnimatePresence>
+
+            <LibraryCard
+              items={library.items}
+              loading={library.loading}
+              onRefresh={library.refresh}
+              onSaveToDevice={handleSaveToDevice}
+              onRemove={library.removeItem}
+              onClearAll={library.clearAll}
+              t={t}
+            />
 
             <HistoryCard downloads={downloads} onClear={clearHistory} t={t} />
           </div>
