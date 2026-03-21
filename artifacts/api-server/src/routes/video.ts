@@ -336,6 +336,11 @@ router.post("/video/download", validateApiKey, async (req, res): Promise<void> =
 
     const downloadedFile = files[0];
     const filepath = path.join(DOWNLOAD_DIR, downloadedFile);
+
+    if (!isAudioOnly && downloadedFile.endsWith(".mp4")) {
+      await ensureCompatibleAudio(filepath);
+    }
+
     const stat = fs.statSync(filepath);
 
     let jsonStr: string;
@@ -543,6 +548,61 @@ function runFfmpeg(args: string[]): Promise<string> {
       reject(err);
     });
   });
+}
+
+function runFfprobe(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffprobe", args, { timeout: 30000 });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+    proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+    proc.on("close", (code) => {
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(stderr || `ffprobe exited with code ${code}`));
+    });
+    proc.on("error", reject);
+  });
+}
+
+async function ensureCompatibleAudio(filepath: string): Promise<string> {
+  try {
+    const probeOut = await runFfprobe([
+      "-v", "quiet", "-select_streams", "a:0",
+      "-show_entries", "stream=codec_name,profile",
+      "-of", "csv=p=0", filepath,
+    ]);
+
+    if (!probeOut.trim()) return filepath;
+
+    const parts = probeOut.trim().split(",");
+    const codec = parts[0]?.trim();
+    const profile = parts[1]?.trim() || "";
+
+    const needsRecode = codec === "aac" && (profile === "HE-AAC" || profile === "HE-AACv2");
+
+    if (!needsRecode) return filepath;
+
+    console.log(`Re-encoding HE-AAC to AAC-LC for browser compatibility: ${filepath}`);
+    const ext = path.extname(filepath);
+    const fixedPath = filepath.replace(ext, `_fixed${ext}`);
+
+    await runFfmpeg([
+      "-y", "-i", filepath,
+      "-c:v", "copy",
+      "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+      "-movflags", "+faststart",
+      fixedPath,
+    ]);
+
+    fs.unlinkSync(filepath);
+    fs.renameSync(fixedPath, filepath);
+    console.log(`Audio re-encoded successfully: ${filepath}`);
+    return filepath;
+  } catch (err: any) {
+    console.error("Audio re-encode failed (keeping original):", err.message);
+    return filepath;
+  }
 }
 
 function clamp(val: unknown, min: number, max: number, fallback: number): number {
@@ -953,11 +1013,11 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       }
     }
     if (!hasVoice && !hasBgMusic && options.stripAudio !== true) {
-      args.push("-c:a", "aac", "-b:a", "128k");
+      args.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100");
     } else if (hasVoice || hasBgMusic) {
-      args.push("-c:a", "aac", "-b:a", "128k");
+      args.push("-c:a", "aac", "-b:a", "128k", "-ar", "44100");
     }
-    args.push(outputPath);
+    args.push("-movflags", "+faststart", outputPath);
 
     await runFfmpeg(args);
 
