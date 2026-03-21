@@ -93,12 +93,8 @@ function KeyScreen({ onAuth, lang, setLang, t }: {
     <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col">
       <header className="border-b border-white/5 bg-[#0e0e16]/80 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center">
-              <Download className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-bold text-sm tracking-tight">VidTool</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/20">v1.0</span>
+          <div className="flex items-center gap-2">
+            <span className="font-black text-lg tracking-tight bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">Haxmax</span>
           </div>
           <LangToggle lang={lang} setLang={setLang} />
         </div>
@@ -317,12 +313,8 @@ export default function Home() {
     <div className="min-h-screen bg-[#0a0a0f] text-white flex flex-col">
       <header className="border-b border-white/5 bg-[#0e0e16]/80 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 h-12 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center">
-              <Download className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-bold text-sm tracking-tight">VidTool</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/20">v1.0</span>
+          <div className="flex items-center gap-2">
+            <span className="font-black text-lg tracking-tight bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent">Haxmax</span>
           </div>
 
           <div className="flex items-center gap-3">
