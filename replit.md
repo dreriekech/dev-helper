@@ -72,9 +72,18 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 - Users can save individual files to device, remove files, or clear entire library
 - Library auto-refreshes every 60 seconds on the frontend
 
+### Reup Tools
+- `POST /api/video/reup` — Process a library video with ffmpeg transformations to make it unique for re-uploading (requires API key)
+- Takes `fileId` (from library) and `options` object with transformation parameters
+- Supported transformations: mirror (hflip), vertical flip, rotate, zoom/crop, brightness/contrast/saturation (combined eq filter), border/padding, speed change, audio pitch shift, color balance (RGB), noise
+- All numeric inputs are clamped to safe ranges; color strings are sanitized
+- Audio-only files skip video filters; output uses appropriate codec
+- Processed video is saved back to library with `[Reup]` prefix in title
+- Quick presets: TikTok Reup (mirror + speed 1.05x + zoom 1.03x + pitch 1.02), Facebook Reup (mirror + brightness +0.05 + saturation 1.15 + border 2px)
+
 ### Backend Logic
 - Uses `yt-dlp` as a subprocess for video extraction and downloading
-- Uses `ffmpeg` for video/audio merging and format conversion
+- Uses `ffmpeg` for video/audio merging, format conversion, and reup processing
 - Files stored temporarily in system temp directory, auto-cleaned after 30 minutes
 - `activeDownloads` Map stores metadata (title, platform, thumbnail, quality, timestamps)
 

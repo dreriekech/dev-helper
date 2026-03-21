@@ -393,6 +393,186 @@ router.delete("/video/library/:fileId", validateApiKey, (req, res): void => {
   res.json({ success: true });
 });
 
+function runFfmpeg(args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffmpeg", args, { timeout: 300000 });
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout.on("data", (data: Buffer) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr.on("data", (data: Buffer) => {
+      stderr += data.toString();
+    });
+
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdout.trim());
+      } else {
+        reject(new Error(stderr || `ffmpeg exited with code ${code}`));
+      }
+    });
+
+    proc.on("error", (err) => {
+      reject(err);
+    });
+  });
+}
+
+function clamp(val: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(val);
+  if (isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function sanitizeColor(color: unknown): string {
+  if (typeof color !== "string") return "black";
+  if (/^#[0-9a-fA-F]{3,8}$/.test(color)) return color;
+  if (/^[a-zA-Z]+$/.test(color)) return color;
+  return "black";
+}
+
+router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
+  const { fileId, options } = req.body || {};
+
+  if (!fileId || !options || typeof options !== "object") {
+    res.status(400).json({ error: "Missing fileId or options" });
+    return;
+  }
+
+  const source = activeDownloads.get(fileId);
+  if (!source || !fs.existsSync(source.filepath)) {
+    res.status(404).json({ error: "Source file not found in library" });
+    return;
+  }
+
+  const ext = path.extname(source.filepath).toLowerCase() || ".mp4";
+  const isAudioOnly = [".mp3", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".flac"].includes(ext);
+
+  const newFileId = randomUUID();
+  const outputExt = isAudioOnly ? ext : ".mp4";
+  const outputPath = path.join(DOWNLOAD_DIR, `${newFileId}${outputExt}`);
+
+  try {
+    const videoFilters: string[] = [];
+    const audioFilters: string[] = [];
+
+    if (!isAudioOnly) {
+      if (options.mirror === true) {
+        videoFilters.push("hflip");
+      }
+
+      if (options.flipVertical === true) {
+        videoFilters.push("vflip");
+      }
+
+      const rotate = clamp(options.rotate, -180, 180, 0);
+      if (rotate !== 0) {
+        const angle = (rotate * Math.PI) / 180;
+        videoFilters.push(`rotate=${angle.toFixed(6)}:c=black:ow=rotw(${angle.toFixed(6)}):oh=roth(${angle.toFixed(6)})`);
+      }
+
+      const zoom = clamp(options.zoom, 1, 2, 1);
+      if (zoom > 1) {
+        videoFilters.push(`crop=iw/${zoom.toFixed(4)}:ih/${zoom.toFixed(4)},scale=iw*${zoom.toFixed(4)}:ih*${zoom.toFixed(4)}`);
+      }
+
+      const brightness = clamp(options.brightness, -1, 1, 0);
+      const contrast = clamp(options.contrast, 0.5, 2, 1);
+      const saturation = clamp(options.saturation, 0, 3, 1);
+      if (brightness !== 0 || contrast !== 1 || saturation !== 1) {
+        videoFilters.push(`eq=brightness=${brightness.toFixed(4)}:contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}`);
+      }
+
+      const border = clamp(options.border, 0, 100, 0);
+      if (border > 0) {
+        const color = sanitizeColor(options.borderColor);
+        videoFilters.push(`pad=iw+${border * 2}:ih+${border * 2}:${border}:${border}:${color}`);
+      }
+
+      if (options.colorShift && typeof options.colorShift === "object") {
+        const r = clamp(options.colorShift.r, -1, 1, 0);
+        const g = clamp(options.colorShift.g, -1, 1, 0);
+        const b = clamp(options.colorShift.b, -1, 1, 0);
+        if (r !== 0 || g !== 0 || b !== 0) {
+          videoFilters.push(`colorbalance=rs=${r.toFixed(4)}:gs=${g.toFixed(4)}:bs=${b.toFixed(4)}`);
+        }
+      }
+
+      const noise = clamp(options.noise, 0, 100, 0);
+      if (noise > 0) {
+        videoFilters.push(`noise=alls=${Math.round(noise)}:allf=t`);
+      }
+    }
+
+    const speed = clamp(options.speed, 0.5, 2, 1);
+    if (speed !== 1) {
+      if (!isAudioOnly) {
+        videoFilters.push(`setpts=${(1 / speed).toFixed(4)}*PTS`);
+      }
+      audioFilters.push(`atempo=${speed.toFixed(4)}`);
+    }
+
+    const audioPitch = clamp(options.audioPitch, 0.5, 2, 1);
+    if (audioPitch !== 1) {
+      audioFilters.push(`asetrate=44100*${audioPitch.toFixed(4)},aresample=44100`);
+    }
+
+    const args = ["-y", "-i", source.filepath];
+
+    if (videoFilters.length > 0) {
+      args.push("-vf", videoFilters.join(","));
+    }
+    if (audioFilters.length > 0) {
+      args.push("-af", audioFilters.join(","));
+    }
+
+    if (!isAudioOnly) {
+      args.push("-c:v", "libx264", "-preset", "fast", "-crf", "23");
+    }
+    args.push("-c:a", "aac", "-b:a", "128k");
+    args.push(outputPath);
+
+    await runFfmpeg(args);
+
+    if (!fs.existsSync(outputPath)) {
+      res.status(500).json({ error: "Processing completed but output file not found" });
+      return;
+    }
+
+    const stat = fs.statSync(outputPath);
+    const reupTitle = `[Reup] ${source.title}`;
+    const reupFilename = `reup_${source.filename}`;
+
+    activeDownloads.set(newFileId, {
+      filepath: outputPath,
+      filename: reupFilename,
+      filesize: stat.size,
+      title: reupTitle,
+      platform: source.platform,
+      thumbnail: source.thumbnail,
+      quality: source.quality,
+      url: source.url,
+      createdAt: Date.now(),
+    });
+
+    res.json({
+      fileId: newFileId,
+      filename: reupFilename,
+      filesize: stat.size,
+      title: reupTitle,
+      streamUrl: `/api/video/stream/${newFileId}`,
+    });
+  } catch (err: any) {
+    try {
+      if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+    } catch {}
+    res.status(500).json({ error: err.message || "Failed to process video" });
+  }
+});
+
 router.delete("/video/library", validateApiKey, (_req, res): void => {
   for (const [fileId, entry] of activeDownloads.entries()) {
     try {

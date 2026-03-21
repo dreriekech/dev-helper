@@ -1,16 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
-import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, Clipboard, X, Key, LogOut, Infinity, FolderOpen } from "lucide-react";
+import { Download, Search, Video, AlertCircle, Youtube, Facebook, Instagram, Twitter, Music, PlaySquare, Globe, Zap, Shield, MonitorPlay, Clipboard, X, Key, LogOut, Infinity, FolderOpen, Wand2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useExtractVideoInfo, useDownloadVideo, setApiKey, type VideoFormat } from "@workspace/api-client-react";
 import { VideoCard } from "@/components/video-card";
 import { HistoryCard } from "@/components/history-card";
 import { LibraryCard, type LibraryItem } from "@/components/library-card";
+import { ReupTools } from "@/components/reup-tools";
 import { useRecentDownloads } from "@/hooks/use-recent-downloads";
 import { useLang, type Lang } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 const KEY_STORAGE = "vd_api_key";
-type Tab = "download" | "library";
+type Tab = "download" | "library" | "reup";
 
 const platforms = [
   { icon: Youtube, name: "YouTube", color: "text-red-500" },
@@ -400,6 +401,22 @@ export default function Home() {
               />
             )}
           </button>
+          <button
+            onClick={() => { setActiveTab("reup"); library.refresh(); }}
+            className={cn(
+              "relative flex items-center gap-2 px-4 py-3 text-sm font-semibold transition-colors",
+              activeTab === "reup" ? "text-pink-400" : "text-white/40 hover:text-white/70"
+            )}
+          >
+            <Wand2 className="w-4 h-4" />
+            {t.tabReup}
+            {activeTab === "reup" && (
+              <motion.div
+                layoutId="tab-indicator"
+                className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-pink-500 to-amber-500"
+              />
+            )}
+          </button>
         </div>
       </nav>
 
@@ -540,7 +557,7 @@ export default function Home() {
                 </div>
               </div>
             </motion.div>
-          ) : (
+          ) : activeTab === "library" ? (
             <motion.div
               key="library"
               initial={{ opacity: 0, x: 10 }}
@@ -562,6 +579,21 @@ export default function Home() {
                   t={t}
                 />
               </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="reup"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 10 }}
+              transition={{ duration: 0.15 }}
+            >
+              <ReupTools
+                libraryItems={library.items}
+                apiKey={apiKeyValue}
+                onProcessed={library.refresh}
+                t={t}
+              />
             </motion.div>
           )}
         </AnimatePresence>
