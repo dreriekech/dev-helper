@@ -147,7 +147,7 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 - 5 platform targets: TikTok, YouTube, Facebook, Instagram, Twitter/X
 - Returns: script, suggestedTitle, suggestedDescription, suggestedHashtags
 - Uses GPT-4o for script generation + GPT-4o-mini for title/description metadata
-- Uses Replit AI Integrations: `AI_INTEGRATIONS_OPENAI_BASE_URL`, `AI_INTEGRATIONS_OPENAI_API_KEY`
+- Uses user's own OpenAI API key (Pro plan): `OPENAI_API_KEY` env secret
 
 ### Backend Logic
 - Uses `yt-dlp` as a subprocess for video extraction and downloading
