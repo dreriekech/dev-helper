@@ -38,7 +38,7 @@ const defaultOptions: ReupOptions = {
   audioPitch: 1,
   noise: 0,
   subtitleText: "",
-  subtitleFontSize: 24,
+  subtitleFontSize: 14,
   subtitleColor: "white",
   subtitleBg: true,
   subtitlePosition: "bottom",
@@ -502,7 +502,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t }: ReupToolsPro
                     <span className="text-[10px] text-white/30">{t.reupTextSize}</span>
                     <input
                       type="range"
-                      min={14}
+                      min={8}
                       max={48}
                       step={1}
                       value={options.subtitleFontSize}

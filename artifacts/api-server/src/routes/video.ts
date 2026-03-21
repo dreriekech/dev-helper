@@ -569,9 +569,9 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     if (!isAudioOnly && options.srtContent && typeof options.srtContent === "string") {
       const srtPath = path.join(DOWNLOAD_DIR, `${newFileId}.srt`);
       fs.writeFileSync(srtPath, options.srtContent, "utf-8");
-      const fontSize = clamp(options.subtitleFontSize, 12, 72, 24);
+      const fontSize = clamp(options.subtitleFontSize, 8, 48, 14);
       const escapedSrtPath = srtPath.replace(/:/g, "\\:").replace(/\\/g, "/");
-      videoFilters.push(`subtitles=${escapedSrtPath}:force_style='FontSize=${Math.round(fontSize)},PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,BackColour=&H80000000,Alignment=2'`);
+      videoFilters.push(`subtitles=${escapedSrtPath}:force_style='FontSize=${Math.round(fontSize)},FontName=Arial,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=25,MarginL=20,MarginR=20,WrapStyle=2'`);
     }
 
     if (!isAudioOnly && videoFilters.length > 0) {
