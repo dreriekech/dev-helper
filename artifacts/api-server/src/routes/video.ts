@@ -517,7 +517,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
     if (!isAudioOnly) {
       if (options.removeWatermark === true) {
-        videoFilters.push("delogo=x=iw-120:y=10:w=110:h=40:show=0");
+        videoFilters.push("delogo=x=10:y=10:w=150:h=50:show=0");
       }
       if (options.removeWatermarkArea && typeof options.removeWatermarkArea === "object") {
         const wx = clamp(options.removeWatermarkArea.x, 0, 3840, 0);
