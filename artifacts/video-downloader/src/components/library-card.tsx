@@ -34,28 +34,38 @@ interface LibraryCardProps {
 function PreviewPlayer({ streamUrl, unmuteLabel }: { streamUrl: string; unmuteLabel: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isMuted, setIsMuted] = useState(true);
+  const [needsUnmute, setNeedsUnmute] = useState(false);
 
   const handleVideoLoaded = useCallback(() => {
     const vid = videoRef.current;
     if (!vid) return;
     vid.muted = true;
     vid.play().then(() => {
-      vid.muted = false;
-      setIsMuted(false);
+      setNeedsUnmute(true);
     }).catch(() => {
-      setIsMuted(true);
+      setNeedsUnmute(true);
     });
   }, []);
 
-  const toggleMute = () => {
+  const handleUnmute = () => {
     const vid = videoRef.current;
     if (!vid) return;
-    vid.muted = !vid.muted;
-    setIsMuted(vid.muted);
-    if (!vid.muted && vid.paused) {
+    vid.muted = false;
+    setIsMuted(false);
+    setNeedsUnmute(false);
+    if (vid.paused) {
       vid.play().catch(() => {});
     }
   };
+
+  const handleVolumeChange = useCallback(() => {
+    const vid = videoRef.current;
+    if (!vid) return;
+    setIsMuted(vid.muted || vid.volume === 0);
+    if (!vid.muted && vid.volume > 0) {
+      setNeedsUnmute(false);
+    }
+  }, []);
 
   return (
     <div className="bg-black relative group">
@@ -66,13 +76,14 @@ function PreviewPlayer({ streamUrl, unmuteLabel }: { streamUrl: string; unmuteLa
         preload="auto"
         playsInline
         onLoadedData={handleVideoLoaded}
+        onVolumeChange={handleVolumeChange}
         className="w-full max-h-[70vh] object-contain"
         controlsList="nodownload"
       />
-      {isMuted && (
+      {(isMuted || needsUnmute) && (
         <button
-          onClick={toggleMute}
-          className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-sm border border-white/20 text-white text-[10px] font-bold hover:bg-white/20 transition-all z-10"
+          onClick={handleUnmute}
+          className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/70 backdrop-blur-sm border border-white/20 text-white text-[10px] font-bold hover:bg-white/20 transition-all z-10 animate-pulse"
         >
           <VolumeX className="w-3.5 h-3.5 text-amber-400" />
           <span>{unmuteLabel}</span>
