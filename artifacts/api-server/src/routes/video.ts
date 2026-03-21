@@ -665,9 +665,26 @@ function formatAssTimestamp(seconds: number): string {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
 }
 
-function generateTikTokAss(srtContent: string, fontSize: number, videoWidth: number, videoHeight: number): string {
-  const marginL = Math.round(videoWidth * 0.05);
-  const marginR = Math.round(videoWidth * 0.05);
+function generateTikTokAss(
+  srtContent: string,
+  fontSize: number,
+  videoWidth: number,
+  videoHeight: number,
+  coverOptions?: { position: string; heightPercent: number }
+): string {
+  const marginL = Math.round(videoWidth * 0.04);
+  const marginR = Math.round(videoWidth * 0.04);
+
+  let marginV: number;
+  if (coverOptions && (coverOptions.position === "bottom" || coverOptions.position === "both")) {
+    const barHeight = Math.round(videoHeight * coverOptions.heightPercent);
+    if (fontSize > barHeight * 0.8) {
+      fontSize = Math.round(barHeight * 0.6);
+    }
+    marginV = Math.max(5, Math.round((barHeight - fontSize) / 2));
+  } else {
+    marginV = Math.max(10, Math.round(videoHeight * 0.03));
+  }
 
   let ass = `[Script Info]
 ScriptType: v4.00+
@@ -677,7 +694,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,${Math.round(fontSize)},&H00FFFFFF,&HFF000000,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,1,2,4,${marginL},${marginR},0,1
+Style: Default,Arial,${Math.round(fontSize)},&H00FFFFFF,&HFF000000,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,1,2,2,${marginL},${marginR},${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -957,7 +974,10 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
         videoFilters.push(`ass=${escapedAssPath}`);
       } else if (subtitleStyle === "tiktok") {
         const tiktokFontSize = Math.round(videoWidth * 0.04 * (baseFontSize / 14));
-        const assContent = generateTikTokAss(options.srtContent, tiktokFontSize, videoWidth, videoHeight);
+        const coverOpts = options.coverOriginalText === true
+          ? { position: options.coverTextPosition || "bottom", heightPercent: clamp(options.coverTextHeight, 5, 30, 15) / 100 }
+          : undefined;
+        const assContent = generateTikTokAss(options.srtContent, tiktokFontSize, videoWidth, videoHeight, coverOpts);
         const assPath = path.join(DOWNLOAD_DIR, `${newFileId}_karaoke.ass`);
         fs.writeFileSync(assPath, assContent, "utf-8");
         subtitleTempFiles.push(assPath);
