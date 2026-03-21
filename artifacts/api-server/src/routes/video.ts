@@ -694,7 +694,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,${Math.round(fontSize)},&H00FFFFFF,&HFF000000,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,1,2,2,${marginL},${marginR},${marginV},1
+Style: Default,DejaVu Sans,${Math.round(fontSize)},&H00FFFFFF,&HFF000000,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,1,2,2,${marginL},${marginR},${marginV},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -948,7 +948,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       };
       const styleStr = drawStyleMap[textStyle] || drawStyleMap.classic;
       const dynamicFontSize = `'if(gt(${Math.round(fontSize)}\\,w/25)\\,w/25\\,${Math.round(fontSize)})'`;
-      const drawTextFilter = `drawtext=text='${text}':fontsize=${dynamicFontSize}:x=(w-text_w)/2:y=${yPos}${styleStr}`;
+      const drawTextFilter = `drawtext=text='${text}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=${dynamicFontSize}:x=(w-text_w)/2:y=${yPos}${styleStr}`;
       videoFilters.push(drawTextFilter);
     }
 
@@ -988,12 +988,12 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
         subtitleTempFiles.push(srtPath);
         const escapedSrtPath = srtPath.replace(/:/g, "\\:").replace(/\\/g, "/");
         const styleMap: Record<string, string> = {
-          classic: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
-          outline: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
-          highlight: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
-          shadow: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
-          neon: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
-          retro: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          classic: `FontSize=${scaledFontSize},FontName=DejaVu Sans,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          outline: `FontSize=${scaledFontSize},FontName=DejaVu Sans,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          highlight: `FontSize=${scaledFontSize},FontName=DejaVu Sans,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          shadow: `FontSize=${scaledFontSize},FontName=DejaVu Sans,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          neon: `FontSize=${scaledFontSize},FontName=DejaVu Sans,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          retro: `FontSize=${scaledFontSize},FontName=DejaVu Sans,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
         };
         const forceStyle = styleMap[subtitleStyle] || styleMap.classic;
         videoFilters.push(`subtitles=${escapedSrtPath}:force_style='${forceStyle}'`);
@@ -1197,8 +1197,8 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Arial,${Math.round(fontSize)},${s.primary},&H000000FF,${s.outline},${s.back},1,0,0,0,100,100,0,0,1,${s.outlineW},${s.shadow},2,80,80,30,1
-Style: Highlight,Arial,${Math.round(fontSize)},&H0000D7FF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,80,80,30,1
+Style: Default,DejaVu Sans,${Math.round(fontSize)},${s.primary},&H000000FF,${s.outline},${s.back},1,0,0,0,100,100,0,0,1,${s.outlineW},${s.shadow},2,80,80,30,1
+Style: Highlight,DejaVu Sans,${Math.round(fontSize)},&H0000D7FF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,1,2,80,80,30,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -1608,8 +1608,8 @@ async function sonioxGetTranscript(transcriptionId: string): Promise<{ tokens: A
 }
 
 function tokensToSegments(tokens: Array<{ text: string; start_ms: number; end_ms: number }>): Array<{ start: number; end: number; text: string }> {
-  const MAX_CHARS = 35;
-  const MAX_WORDS = 8;
+  const MAX_CHARS = 25;
+  const MAX_WORDS = 6;
 
   const words: Array<{ text: string; start_ms: number; end_ms: number }> = [];
   let buf = "";
@@ -1655,7 +1655,7 @@ function tokensToSegments(tokens: Array<{ text: string; start_ms: number; end_ms
 }
 
 function smartSplitLongSegments(segments: Array<{ start: number; end: number; text: string }>): Array<{ start: number; end: number; text: string }> {
-  const MAX_DISPLAY_CHARS = 40;
+  const MAX_DISPLAY_CHARS = 30;
   const result: Array<{ start: number; end: number; text: string }> = [];
 
   for (const seg of segments) {
