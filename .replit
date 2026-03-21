@@ -33,3 +33,4 @@ packages = ["yt-dlp", "ffmpeg"]
 
 [userenv.shared]
 VALID_API_KEYS = "HA7-A9F3-K8L2-P0QW"
+VBEE_APP_ID = "d4ac0c93-62d8-452c-91ab-0fb0164fa0e9"

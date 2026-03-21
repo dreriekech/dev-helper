@@ -200,7 +200,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
-  const [voices, setVoices] = useState<{ voiceId: string; name: string; gender: string }[]>([]);
+  const [voices, setVoices] = useState<{ voiceId: string; name: string; gender: string; accent?: string; provider: string; lang: string }[]>([]);
   const [selectedVoice, setSelectedVoice] = useState("");
   const [voicesLoaded, setVoicesLoaded] = useState(false);
 
@@ -286,7 +286,11 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
 
     try {
       const body: Record<string, string> = { text, lang };
-      if (selectedVoice) body.voiceId = selectedVoice;
+      if (selectedVoice) {
+        body.voiceId = selectedVoice;
+        const voiceInfo = voices.find((v) => v.voiceId === selectedVoice);
+        if (voiceInfo) body.provider = voiceInfo.provider;
+      }
 
       const res = await fetch("/api/video/tts", {
         method: "POST",
@@ -817,11 +821,24 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                       className="flex-1 bg-[#12121a] rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/60 outline-none cursor-pointer"
                     >
                       <option value="">{t.reupVoiceSelect} ({lang === "vi" ? "Mặc định" : "Default"})</option>
-                      {voices.map((v) => (
-                        <option key={v.voiceId} value={v.voiceId}>
-                          {v.name} {v.gender ? `(${v.gender})` : ""}
-                        </option>
-                      ))}
+                      {voices.filter((v) => v.provider === "vbee").length > 0 && (
+                        <optgroup label="🇻🇳 Vbee (Tiếng Việt)">
+                          {voices.filter((v) => v.provider === "vbee").map((v) => (
+                            <option key={v.voiceId} value={v.voiceId}>
+                              {v.name} ({v.gender}{v.accent ? ` - ${v.accent}` : ""})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {voices.filter((v) => v.provider === "elevenlabs").length > 0 && (
+                        <optgroup label="🌐 ElevenLabs (English)">
+                          {voices.filter((v) => v.provider === "elevenlabs").map((v) => (
+                            <option key={v.voiceId} value={v.voiceId}>
+                              {v.name} {v.gender ? `(${v.gender})` : ""}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
