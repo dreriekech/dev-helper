@@ -209,6 +209,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
   const [voices, setVoices] = useState<{ voiceId: string; name: string; gender: string; accent?: string; provider: string; lang: string }[]>([]);
   const [selectedVoice, setSelectedVoice] = useState("");
   const [voicesLoaded, setVoicesLoaded] = useState(false);
+  const [voiceFromSubtitles, setVoiceFromSubtitles] = useState(false);
 
   const selectedItem = libraryItems.find((i) => i.fileId === selectedFileId);
 
@@ -424,6 +425,16 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
         });
         if (!autoSubtitle && options.srtContent) {
           smartOpts.srtContent = options.srtContent;
+        }
+      }
+
+      if (voiceFromSubtitles && smartOpts.srtContent) {
+        smartOpts.voiceFromSubtitles = true;
+        smartOpts.voiceLang = lang;
+        if (selectedVoice) {
+          smartOpts.voiceId = selectedVoice;
+          const voiceInfo = voices.find((v) => v.voiceId === selectedVoice);
+          if (voiceInfo) smartOpts.voiceProvider = voiceInfo.provider;
         }
       }
 
@@ -677,7 +688,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
               )}
             </div>
 
-            <div className="bg-[#12121a] rounded-xl border border-white/5 p-3">
+            <div className="bg-[#12121a] rounded-xl border border-white/5 p-3 space-y-2">
               <label className="flex items-center gap-2 cursor-pointer" onClick={() => updateOption("stripAudio", !options.stripAudio)}>
                 <ToggleSwitch on={options.stripAudio} />
                 <div>
@@ -688,6 +699,12 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                   <p className="text-[8px] text-white/30">{t.reupStripAudioDesc}</p>
                 </div>
               </label>
+              {options.stripAudio && (
+                <div className="flex items-center gap-2 pl-8">
+                  <Music className="w-3 h-3 text-green-400" />
+                  <span className="text-[9px] text-green-400/70">{lang === "vi" ? "Tự động thêm nhạc nền ambient (không bản quyền)" : "Auto-adds ambient background music (royalty-free)"}</span>
+                </div>
+              )}
             </div>
 
             <div className="bg-[#12121a] rounded-xl border border-white/5 p-3 space-y-2">
@@ -740,6 +757,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
           </div>
 
           {selectedFileId && (
+            <>
             <div className="bg-[#12121a] rounded-xl border border-white/5 p-4 space-y-3">
               <h3 className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center gap-1.5">
                 <Wand2 className="w-3.5 h-3.5 text-violet-400" />
@@ -856,108 +874,85 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
 
               {aiResult && (
                 <div className="bg-[#0a0a10] rounded-lg border border-cyan-500/10 p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <AudioLines className="w-3.5 h-3.5" />
-                      {t.reupVoiceAi}
-                    </h4>
-                    <div className="flex items-center gap-2">
-                      {ttsPlaying && (
-                        <button
-                          onClick={stopTts}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/10 text-red-400 text-[9px] font-bold hover:bg-red-500/20 transition-all"
-                        >
-                          <StopIcon className="w-2.5 h-2.5" />
-                          {t.reupVoiceStop}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedVoice}
-                      onFocus={fetchVoices}
-                      onChange={(e) => setSelectedVoice(e.target.value)}
-                      className="flex-1 bg-[#12121a] rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/60 outline-none cursor-pointer"
-                    >
-                      <option value="">{t.reupVoiceSelect} ({lang === "vi" ? "Mặc định" : "Default"})</option>
-                      {voices.filter((v) => v.provider === "vbee").length > 0 && (
-                        <optgroup label="🇻🇳 Vbee (Tiếng Việt)">
-                          {voices.filter((v) => v.provider === "vbee").map((v) => (
-                            <option key={v.voiceId} value={v.voiceId}>
-                              {v.name} ({v.gender}{v.accent ? ` - ${v.accent}` : ""})
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                      {voices.filter((v) => v.provider === "elevenlabs").length > 0 && (
-                        <optgroup label="🌐 ElevenLabs (English)">
-                          {voices.filter((v) => v.provider === "elevenlabs").map((v) => (
-                            <option key={v.voiceId} value={v.voiceId}>
-                              {v.name} {v.gender ? `(${v.gender})` : ""}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => handleTts(aiResult.caption, "caption")}
-                      disabled={!!ttsGenerating}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                    >
-                      {ttsGenerating === "caption" ? (
-                        <span className="w-2.5 h-2.5 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
-                      ) : (
-                        <Play className="w-2.5 h-2.5" />
-                      )}
-                      {ttsGenerating === "caption" ? t.reupVoiceGenerating : t.reupVoiceCaption}
-                    </button>
-                    {aiResult.hook && (
-                      <button
-                        onClick={() => handleTts(aiResult.hook, "hook")}
-                        disabled={!!ttsGenerating}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                      >
-                        {ttsGenerating === "hook" ? (
-                          <span className="w-2.5 h-2.5 border-2 border-amber-400/30 border-t-amber-400 rounded-full animate-spin" />
-                        ) : (
-                          <Play className="w-2.5 h-2.5" />
-                        )}
-                        {ttsGenerating === "hook" ? t.reupVoiceGenerating : t.reupVoiceHook}
-                      </button>
-                    )}
-                    {aiResult.cta && (
-                      <button
-                        onClick={() => handleTts(aiResult.cta, "cta")}
-                        disabled={!!ttsGenerating}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                      >
-                        {ttsGenerating === "cta" ? (
-                          <span className="w-2.5 h-2.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
-                        ) : (
-                          <Play className="w-2.5 h-2.5" />
-                        )}
-                        {ttsGenerating === "cta" ? t.reupVoiceGenerating : t.reupVoiceCta}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleTts([aiResult.hook, aiResult.caption, aiResult.cta].filter(Boolean).join(". "), "all")}
-                      disabled={!!ttsGenerating}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 border border-violet-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                    >
-                      {ttsGenerating === "all" ? (
-                        <span className="w-2.5 h-2.5 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" />
-                      ) : (
-                        <AudioLines className="w-2.5 h-2.5" />
-                      )}
-                      {ttsGenerating === "all" ? t.reupVoiceGenerating : t.reupVoiceAll}
-                    </button>
-                  </div>
+                  <p className="text-[9px] text-white/30">{lang === "vi" ? "Caption gợi ý - sao chép để đăng lên nền tảng:" : "Suggested caption - copy to post on platform:"}</p>
                 </div>
               )}
+
+              <div className="bg-[#0a0a10] rounded-lg border border-cyan-500/10 p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <AudioLines className="w-3.5 h-3.5" />
+                    {lang === "vi" ? "Giọng đọc AI (từ phụ đề)" : "Voice AI (from subtitles)"}
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    {ttsPlaying && (
+                      <button
+                        onClick={stopTts}
+                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/10 text-red-400 text-[9px] font-bold hover:bg-red-500/20 transition-all"
+                      >
+                        <StopIcon className="w-2.5 h-2.5" />
+                        {t.reupVoiceStop}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[8px] text-white/30">{lang === "vi" ? "Tạo giọng đọc AI từ nội dung phụ đề và ghép vào video khi Reup" : "Generate AI voice from subtitle content and embed into video during Reup"}</p>
+                <label className="flex items-center gap-2 cursor-pointer" onClick={() => { setVoiceFromSubtitles(!voiceFromSubtitles); fetchVoices(); }}>
+                  <ToggleSwitch on={voiceFromSubtitles} />
+                  <span className="text-[11px] font-semibold text-white/70">{lang === "vi" ? "Ghép giọng đọc vào video" : "Embed voice into video"}</span>
+                </label>
+                {voiceFromSubtitles && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedVoice}
+                        onFocus={fetchVoices}
+                        onChange={(e) => setSelectedVoice(e.target.value)}
+                        className="flex-1 bg-[#12121a] rounded-lg border border-white/10 px-2 py-1.5 text-[10px] text-white/60 outline-none cursor-pointer"
+                      >
+                        <option value="">{t.reupVoiceSelect} ({lang === "vi" ? "Mặc định" : "Default"})</option>
+                        {voices.filter((v) => v.provider === "vbee").length > 0 && (
+                          <optgroup label="Vbee (Tieng Viet)">
+                            {voices.filter((v) => v.provider === "vbee").map((v) => (
+                              <option key={v.voiceId} value={v.voiceId}>
+                                {v.name} ({v.gender}{v.accent ? ` - ${v.accent}` : ""})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {voices.filter((v) => v.provider === "elevenlabs").length > 0 && (
+                          <optgroup label="ElevenLabs (English)">
+                            {voices.filter((v) => v.provider === "elevenlabs").map((v) => (
+                              <option key={v.voiceId} value={v.voiceId}>
+                                {v.name} {v.gender ? `(${v.gender})` : ""}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
+                    {(transcribeResult?.srtContent || options.srtContent) && (
+                      <button
+                        onClick={() => handleTts(transcribeResult?.srtContent?.replace(/\d+\n[\d:,\s->]+\n/g, " ") || options.srtContent.replace(/\d+\n[\d:,\s->]+\n/g, " "), "preview")}
+                        disabled={!!ttsGenerating}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 border border-cyan-500/15 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                      >
+                        {ttsGenerating === "preview" ? (
+                          <span className="w-2.5 h-2.5 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
+                        ) : (
+                          <Play className="w-2.5 h-2.5" />
+                        )}
+                        {ttsGenerating === "preview" ? (lang === "vi" ? "Dang tao..." : "Generating...") : (lang === "vi" ? "Nghe thu giong doc" : "Preview voice")}
+                      </button>
+                    )}
+                    {!transcribeResult?.srtContent && !options.srtContent && (
+                      <p className="text-[8px] text-amber-400/50">{lang === "vi" ? "Can co phu de truoc (bat Auto Subtitle hoac nhap SRT thu cong)" : "Need subtitles first (enable Auto Subtitle or enter SRT manually)"}</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
+          </>
           )}
 
           <div className="bg-[#12121a] rounded-xl border border-white/5 p-3">

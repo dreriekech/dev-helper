@@ -572,6 +572,70 @@ async function getVideoWidth(filepath: string): Promise<number> {
   });
 }
 
+async function getVideoDuration(filepath: string): Promise<number> {
+  return new Promise((resolve) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "csv=p=0",
+      filepath,
+    ]);
+    let out = "";
+    proc.stdout.on("data", (d: Buffer) => { out += d.toString(); });
+    proc.on("close", () => {
+      const d = parseFloat(out.trim());
+      resolve(isNaN(d) ? 60 : d);
+    });
+    proc.on("error", () => resolve(60));
+  });
+}
+
+async function generateAmbientMusic(outputPath: string, duration: number): Promise<void> {
+  const dur = Math.ceil(duration) + 1;
+  const args = [
+    "-y",
+    "-f", "lavfi",
+    "-i", `anoisesrc=d=${dur}:c=pink:a=0.08,bandpass=f=300:width_type=h:w=200,aecho=0.8:0.7:40|60:0.3|0.2,volume=0.12`,
+    "-f", "lavfi",
+    "-i", `sine=f=220:d=${dur},volume=0.03,aecho=0.8:0.9:100:0.3`,
+    "-f", "lavfi",
+    "-i", `sine=f=330:d=${dur},volume=0.02,tremolo=f=0.5:d=0.4`,
+    "-filter_complex", `[0][1][2]amix=inputs=3:duration=first:dropout_transition=2,afade=t=in:st=0:d=2,afade=t=out:st=${Math.max(0, dur - 3)}:d=3`,
+    "-c:a", "aac", "-b:a", "96k",
+    outputPath,
+  ];
+  await runFfmpeg(args);
+}
+
+function extractTextFromSrt(srtContent: string): { text: string; segments: { start: number; end: number; text: string }[] } {
+  const blocks = srtContent.trim().replace(/\r\n/g, "\n").split(/\n\n+/);
+  const segments: { start: number; end: number; text: string }[] = [];
+  const allText: string[] = [];
+
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    if (lines.length < 3) continue;
+    const timeLine = lines[1];
+    const textContent = lines.slice(2).join(" ").trim();
+    if (!textContent) continue;
+
+    const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+    if (!timeMatch) continue;
+
+    const toSec = (h: string, m: string, s: string, ms: string) =>
+      parseInt(h) * 3600 + parseInt(m) * 60 + parseInt(s) + parseInt(ms) / 1000;
+
+    segments.push({
+      start: toSec(timeMatch[1], timeMatch[2], timeMatch[3], timeMatch[4]),
+      end: toSec(timeMatch[5], timeMatch[6], timeMatch[7], timeMatch[8]),
+      text: textContent,
+    });
+    allText.push(textContent);
+  }
+
+  return { text: allText.join(". "), segments };
+}
+
 router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
   const { fileId, options } = req.body || {};
 
@@ -745,12 +809,12 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
         const subtitleStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
         const styleMap: Record<string, string> = {
-          classic: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
-          outline: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
-          highlight: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
-          shadow: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
-          neon: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
-          retro: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=2`,
+          classic: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          outline: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          highlight: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00000000,OutlineColour=&H0000D7FF,Outline=0,Shadow=0,BackColour=&H0000D7FF,BorderStyle=4,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          shadow: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=1,Shadow=4,BackColour=&HCC000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          neon: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFF00,OutlineColour=&H00FF8800,Outline=2,Shadow=0,BackColour=&H00000000,BorderStyle=1,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
+          retro: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H0000D7FF,OutlineColour=&H00000000,Outline=3,Shadow=2,BackColour=&H000060FF,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
         };
         const forceStyle = styleMap[subtitleStyle] || styleMap.classic;
         videoFilters.push(`subtitles=${escapedSrtPath}:force_style='${forceStyle}'`);
@@ -770,8 +834,99 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       args.push("-af", audioFilters.join(","));
     }
 
-    if (options.stripAudio === true && !isAudioOnly) {
+    let ttsAudioPath: string | null = null;
+    let bgMusicPath: string | null = null;
+    const tempFiles: string[] = [];
+
+    if (!isAudioOnly && options.voiceFromSubtitles === true && options.srtContent && typeof options.srtContent === "string") {
+      const { text } = extractTextFromSrt(options.srtContent);
+      if (text.trim()) {
+        try {
+          const ttsBody: Record<string, string> = { text, lang: options.voiceLang || "vi" };
+          if (options.voiceId) ttsBody.voiceId = options.voiceId;
+          if (options.voiceProvider) ttsBody.provider = options.voiceProvider;
+
+          const useVbee = ttsBody.provider === "vbee" || (ttsBody.provider !== "elevenlabs" && ttsBody.lang !== "en");
+          let audioBuffer: Buffer | null = null;
+
+          if (useVbee && VBEE_API_KEY && VBEE_APP_ID) {
+            const selectedVoice = ttsBody.voiceId || "hn_female_ngochuyen_full_48k-fhg";
+            try {
+              audioBuffer = await vbeeTts(text, selectedVoice);
+            } catch (err: any) {
+              console.error("Vbee TTS for subtitles failed:", err.message);
+            }
+          }
+
+          if (!audioBuffer && ELEVENLABS_API_KEY) {
+            const defaultVoiceEn = "JBFqnCBsd6RMkjVDRZzb";
+            const defaultVoiceVi = "pFZP5JQG7iQjIQuC4Bku";
+            const isVbeeVoice = ttsBody.voiceId && VBEE_VOICES.some((v) => v.voiceId === ttsBody.voiceId);
+            const selVoice = isVbeeVoice ? (ttsBody.lang === "en" ? defaultVoiceEn : defaultVoiceVi) : (ttsBody.voiceId || (ttsBody.lang === "en" ? defaultVoiceEn : defaultVoiceVi));
+
+            const ttsRes = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${selVoice}`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY },
+              body: JSON.stringify({
+                text: text.substring(0, 5000),
+                model_id: "eleven_multilingual_v2",
+                voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true },
+              }),
+            });
+            if (ttsRes.ok) {
+              audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
+            }
+          }
+
+          if (audioBuffer) {
+            ttsAudioPath = path.join(DOWNLOAD_DIR, `${newFileId}_voice.mp3`);
+            fs.writeFileSync(ttsAudioPath, audioBuffer);
+            tempFiles.push(ttsAudioPath);
+          }
+        } catch (err: any) {
+          console.error("Voice from subtitles failed:", err.message);
+        }
+      }
+    }
+
+    if (options.stripAudio === true && !isAudioOnly && options.addBgMusic !== false) {
+      try {
+        const duration = await getVideoDuration(source.filepath);
+        bgMusicPath = path.join(DOWNLOAD_DIR, `${newFileId}_bgm.m4a`);
+        await generateAmbientMusic(bgMusicPath, duration);
+        tempFiles.push(bgMusicPath);
+      } catch (err: any) {
+        console.error("Background music generation failed:", err.message);
+      }
+    }
+
+    const hasVoice = ttsAudioPath && fs.existsSync(ttsAudioPath);
+    const hasBgMusic = bgMusicPath && fs.existsSync(bgMusicPath);
+
+    if (options.stripAudio === true && !isAudioOnly && !hasVoice && !hasBgMusic) {
       args.push("-an");
+    } else if (options.stripAudio === true && !isAudioOnly) {
+      if (hasVoice && hasBgMusic) {
+        args.push("-i", ttsAudioPath!, "-i", bgMusicPath!);
+        args.push("-filter_complex", `[1:a]volume=1.0[voice];[2:a]volume=0.25[bgm];[voice][bgm]amix=inputs=2:duration=longest:dropout_transition=3[aout]`);
+        args.push("-map", "0:v", "-map", "[aout]");
+      } else if (hasVoice) {
+        args.push("-i", ttsAudioPath!);
+        args.push("-map", "0:v", "-map", "1:a");
+      } else if (hasBgMusic) {
+        args.push("-i", bgMusicPath!);
+        args.push("-map", "0:v", "-map", "1:a");
+      }
+    } else if (hasVoice) {
+      args.push("-i", ttsAudioPath!);
+      if (hasBgMusic) {
+        args.push("-i", bgMusicPath!);
+        args.push("-filter_complex", `[0:a]volume=0.15[orig];[1:a]volume=1.0[voice];[2:a]volume=0.2[bgm];[orig][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3[aout]`);
+        args.push("-map", "0:v", "-map", "[aout]");
+      } else {
+        args.push("-filter_complex", `[0:a]volume=0.15[orig];[1:a]volume=1.0[voice];[orig][voice]amix=inputs=2:duration=longest:dropout_transition=3[aout]`);
+        args.push("-map", "0:v", "-map", "[aout]");
+      }
     }
 
     if (!isAudioOnly) {
@@ -786,12 +941,18 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
         args.push("-maxrate", `${randBitrate}k`, "-bufsize", `${randBitrate * 2}k`);
       }
     }
-    if (options.stripAudio !== true) {
+    if (!hasVoice && !hasBgMusic && options.stripAudio !== true) {
+      args.push("-c:a", "aac", "-b:a", "128k");
+    } else if (hasVoice || hasBgMusic) {
       args.push("-c:a", "aac", "-b:a", "128k");
     }
     args.push(outputPath);
 
     await runFfmpeg(args);
+
+    for (const f of tempFiles) {
+      try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+    }
 
     if (!fs.existsSync(outputPath)) {
       res.status(500).json({ error: "Processing completed but output file not found" });
@@ -844,7 +1005,7 @@ function srtToAssWithHighlights(srtContent: string, keywords: string[], style: s
 ScriptType: v4.00+
 PlayResX: 1920
 PlayResY: 1080
-WrapStyle: 2
+WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
