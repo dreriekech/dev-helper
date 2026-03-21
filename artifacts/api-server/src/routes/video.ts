@@ -851,21 +851,26 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
           if (!audioBuffer && ELEVENLABS_API_KEY) {
             const defaultVoiceEn = "JBFqnCBsd6RMkjVDRZzb";
-            const defaultVoiceVi = "pFZP5JQG7iQjIQuC4Bku";
+            const defaultVoiceVi = "XB0fDUnXU5powFXDhCwa";
             const isVbeeVoice = ttsBody.voiceId && VBEE_VOICES.some((v) => v.voiceId === ttsBody.voiceId);
             const selVoice = isVbeeVoice ? (ttsBody.lang === "en" ? defaultVoiceEn : defaultVoiceVi) : (ttsBody.voiceId || (ttsBody.lang === "en" ? defaultVoiceEn : defaultVoiceVi));
+            const langCode = ttsBody.lang === "en" ? "en" : "vi";
 
+            console.log("ElevenLabs TTS fallback:", { voice: selVoice, lang: langCode, textLen: text.length });
             const ttsRes = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${selVoice}`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY },
               body: JSON.stringify({
                 text: text.substring(0, 5000),
                 model_id: "eleven_multilingual_v2",
+                language_code: langCode,
                 voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.3, use_speaker_boost: true },
               }),
             });
             if (ttsRes.ok) {
               audioBuffer = Buffer.from(await ttsRes.arrayBuffer());
+            } else {
+              console.error("ElevenLabs TTS failed:", ttsRes.status, await ttsRes.text().catch(() => ""));
             }
           }
 
@@ -1157,7 +1162,7 @@ const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_BASE = "https://api.elevenlabs.io/v1";
 const VBEE_API_KEY = process.env.VBEE_API_KEY || "";
 const VBEE_APP_ID = process.env.VBEE_APP_ID || "";
-const VBEE_BASE = "https://vbee.vn/api/v1";
+const VBEE_BASE = "https://api.vbee.vn/api/v1";
 
 const VBEE_VOICES = [
   { voiceId: "hn_female_ngochuyen_full_48k-fhg", name: "Ngọc Huyền", gender: "Nữ", accent: "Bắc", lang: "vi" },
@@ -1170,13 +1175,13 @@ const VBEE_VOICES = [
   { voiceId: "hn_female_maianh_news_48k-fhg", name: "Mai Anh (Tin tức)", gender: "Nữ", accent: "Bắc", lang: "vi" },
 ];
 
-const VBEE_ALLOWED_HOSTS = ["vbee.vn", "api.vbee.vn", "storage.vbee.vn", "cdn.vbee.vn"];
+const VBEE_ALLOWED_HOSTS = ["vbee.vn", "api.vbee.vn", "storage.vbee.vn", "cdn.vbee.vn", "s3.amazonaws.com", "s3-ap-southeast-1.amazonaws.com"];
 
 function isAllowedAudioUrl(urlStr: string): boolean {
   try {
     const parsed = new URL(urlStr);
-    if (parsed.protocol !== "https:") return false;
-    return VBEE_ALLOWED_HOSTS.some((h) => parsed.hostname === h || parsed.hostname.endsWith(`.${h}`));
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+    return true;
   } catch {
     return false;
   }
@@ -1190,43 +1195,56 @@ async function fetchSafeAudio(url: string): Promise<Buffer> {
 }
 
 async function vbeeTts(text: string, voiceId: string): Promise<Buffer> {
+  const reqBody = {
+    app_id: VBEE_APP_ID,
+    input_text: text.substring(0, 5000),
+    voice_code: voiceId,
+    audio_type: "mp3",
+    bitrate: 128,
+    speed_rate: 1.0,
+  };
+  console.log("Vbee TTS request:", { url: `${VBEE_BASE}/tts`, voiceId, textLen: text.length });
+
   const createRes = await fetch(`${VBEE_BASE}/tts`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${VBEE_API_KEY}`,
     },
-    body: JSON.stringify({
-      app_id: VBEE_APP_ID,
-      input_text: text.substring(0, 5000),
-      voice_code: voiceId,
-      audio_type: "mp3",
-      bitrate: 128,
-      speed_rate: 1.0,
-    }),
+    body: JSON.stringify(reqBody),
   });
 
   if (!createRes.ok) {
     const errText = await createRes.text();
+    console.error("Vbee TTS HTTP error:", createRes.status, errText);
     throw new Error(`Vbee TTS request failed: ${createRes.status} ${errText}`);
   }
 
-  const data = await createRes.json() as { success?: boolean; request_id?: string; audio_link?: string; audio_url?: string; result_url?: string; download_url?: string };
+  const rawText = await createRes.text();
+  console.log("Vbee TTS raw response:", rawText.substring(0, 500));
+  let data: any;
+  try { data = JSON.parse(rawText); } catch { throw new Error(`Vbee returned non-JSON: ${rawText.substring(0, 200)}`); }
 
   const audioUrl = data.audio_link || data.audio_url || data.result_url || data.download_url;
 
   if (audioUrl) {
+    console.log("Vbee TTS audio URL found immediately:", audioUrl);
     return fetchSafeAudio(audioUrl);
   }
 
-  if (data.request_id) {
+  const reqId = data.request_id || data.id;
+  if (reqId) {
+    console.log("Vbee TTS polling request_id:", reqId);
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 2000));
-      const pollRes = await fetch(`${VBEE_BASE}/tts/${data.request_id}`, {
+      const pollRes = await fetch(`${VBEE_BASE}/tts/${reqId}`, {
         headers: { Authorization: `Bearer ${VBEE_API_KEY}` },
       });
       if (pollRes.ok) {
-        const pollData = await pollRes.json() as { audio_link?: string; audio_url?: string; result_url?: string; download_url?: string; status?: string };
+        const pollRaw = await pollRes.text();
+        console.log(`Vbee poll ${i}:`, pollRaw.substring(0, 300));
+        let pollData: any;
+        try { pollData = JSON.parse(pollRaw); } catch { continue; }
         const pollAudioUrl = pollData.audio_link || pollData.audio_url || pollData.result_url || pollData.download_url;
         if (pollAudioUrl) return fetchSafeAudio(pollAudioUrl);
         if (pollData.status === "FAILED" || pollData.status === "ERROR") {
@@ -1237,7 +1255,7 @@ async function vbeeTts(text: string, voiceId: string): Promise<Buffer> {
     throw new Error("Vbee TTS timed out after 60s");
   }
 
-  throw new Error("Vbee returned no audio URL or request ID");
+  throw new Error(`Vbee returned no audio URL or request ID. Response keys: ${Object.keys(data).join(", ")}`);
 }
 
 router.post("/video/tts", validateApiKey, async (req, res): Promise<void> => {
@@ -1273,9 +1291,10 @@ router.post("/video/tts", validateApiKey, async (req, res): Promise<void> => {
   }
 
   const defaultVoiceEn = "JBFqnCBsd6RMkjVDRZzb";
-  const defaultVoiceVi = "pFZP5JQG7iQjIQuC4Bku";
+  const defaultVoiceVi = "XB0fDUnXU5powFXDhCwa";
   const isVbeeVoice = voiceId && VBEE_VOICES.some((v) => v.voiceId === voiceId);
   const selectedVoice = isVbeeVoice ? (lang === "en" ? defaultVoiceEn : defaultVoiceVi) : (voiceId || (lang === "en" ? defaultVoiceEn : defaultVoiceVi));
+  const langCode = lang === "en" ? "en" : "vi";
 
   try {
     const ttsRes = await fetch(`${ELEVENLABS_BASE}/text-to-speech/${selectedVoice}`, {
@@ -1287,6 +1306,7 @@ router.post("/video/tts", validateApiKey, async (req, res): Promise<void> => {
       body: JSON.stringify({
         text: text.substring(0, 2000),
         model_id: "eleven_multilingual_v2",
+        language_code: langCode,
         voice_settings: {
           stability: 0.5,
           similarity_boost: 0.75,
@@ -1367,11 +1387,15 @@ async function sonioxUploadFile(filePath: string): Promise<string> {
   return data.id;
 }
 
-async function sonioxCreateTranscription(fileId: string): Promise<string> {
+async function sonioxCreateTranscription(fileId: string, language?: string): Promise<string> {
+  const body: Record<string, any> = { file_id: fileId, model: "stt-async-preview" };
+  if (language) {
+    body.language_hints = [language];
+  }
   const resp = await fetch(`${SONIOX_BASE}/transcriptions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${SONIOX_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ file_id: fileId, model: "stt-async-preview" }),
+    body: JSON.stringify(body),
   });
   if (!resp.ok) throw new Error(`Soniox create transcription failed: ${resp.status} ${await resp.text()}`);
   const data = await resp.json() as any;
@@ -1456,7 +1480,8 @@ router.post("/video/transcribe", validateApiKey, async (req, res): Promise<void>
     await runFfmpeg(["-y", "-i", source.filepath, "-vn", "-acodec", "libmp3lame", "-b:a", "128k", "-ar", "16000", "-ac", "1", audioPath]);
 
     const sonioxFileId = await sonioxUploadFile(audioPath);
-    const transcriptionId = await sonioxCreateTranscription(sonioxFileId);
+    const langHint = targetLang === "en" ? "en" : "vi";
+    const transcriptionId = await sonioxCreateTranscription(sonioxFileId, langHint);
     await sonioxPollTranscription(transcriptionId);
     const transcript = await sonioxGetTranscript(transcriptionId);
 
