@@ -5,7 +5,7 @@ import type { LibraryItem } from "@/components/library-card";
 import type { Translations } from "@/lib/i18n";
 import { cn, formatBytes } from "@/lib/utils";
 
-type SubtitleStyle = "classic" | "outline" | "highlight" | "shadow" | "neon" | "retro";
+type SubtitleStyle = "classic" | "outline" | "highlight" | "shadow" | "neon" | "retro" | "tiktok";
 
 interface ReupOptions {
   mirror: boolean;
@@ -46,6 +46,7 @@ const subtitleStylePresets: { id: SubtitleStyle; label: string; labelEn: string;
   { id: "shadow", label: "Bóng đổ", labelEn: "Shadow", preview: "Aa", desc: "Đổ bóng mạnh", descEn: "Heavy drop shadow" },
   { id: "neon", label: "Neon", labelEn: "Neon", preview: "Aa", desc: "Phát sáng neon", descEn: "Neon glow" },
   { id: "retro", label: "Retro", labelEn: "Retro", preview: "Aa", desc: "Kiểu hoạt hình", descEn: "Cartoon style" },
+  { id: "tiktok", label: "TikTok", labelEn: "TikTok", preview: "Aa", desc: "Chữ chạy karaoke", descEn: "Karaoke word-by-word" },
 ];
 
 const defaultOptions: ReupOptions = {
@@ -1255,7 +1256,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                         <div className="space-y-3">
                           <div className="space-y-1.5">
                             <span className="text-[10px] text-white/30 uppercase tracking-wider">{lang === "vi" ? "Kiểu chữ" : "Text Style"}</span>
-                            <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
                               {subtitleStylePresets.map((style) => {
                                 const stylePreviewMap: Record<SubtitleStyle, React.CSSProperties> = {
                                   classic: { color: "#fff", textShadow: "1px 1px 2px #000, -1px -1px 2px #000", fontWeight: 700 },
@@ -1264,6 +1265,7 @@ export function ReupTools({ libraryItems, apiKey, onProcessed, t, lang }: ReupTo
                                   shadow: { color: "#fff", textShadow: "3px 3px 6px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.5)", fontWeight: 700 },
                                   neon: { color: "#00ffff", textShadow: "0 0 5px #00ffff, 0 0 10px #00ffff, 0 0 20px #0088ff", fontWeight: 700 },
                                   retro: { color: "#FFD700", WebkitTextStroke: "1.5px #000", textShadow: "2px 2px 0 #FF6B00", fontWeight: 900 },
+                                  tiktok: { color: "#fff", textShadow: "1px 1px 3px rgba(0,0,0,0.9)", fontWeight: 700, letterSpacing: "0.5px" },
                                 };
                                 return (
                                   <button

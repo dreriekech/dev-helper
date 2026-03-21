@@ -637,6 +637,87 @@ async function getVideoWidth(filepath: string): Promise<number> {
   });
 }
 
+async function getVideoHeight(filepath: string): Promise<number> {
+  return new Promise((resolve) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=height",
+      "-of", "csv=p=0",
+      filepath,
+    ]);
+    let out = "";
+    proc.stdout.on("data", (d: Buffer) => { out += d.toString(); });
+    proc.on("close", () => {
+      const h = parseInt(out.trim(), 10);
+      resolve(isNaN(h) ? 1080 : h);
+    });
+    proc.on("error", () => resolve(1080));
+  });
+}
+
+function formatAssTimestamp(seconds: number): string {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  let cs = Math.floor((seconds % 1) * 100);
+  if (cs > 99) cs = 99;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
+}
+
+function generateTikTokAss(srtContent: string, fontSize: number, videoWidth: number, videoHeight: number): string {
+  const marginL = Math.round(videoWidth * 0.05);
+  const marginR = Math.round(videoWidth * 0.05);
+
+  let ass = `[Script Info]
+ScriptType: v4.00+
+PlayResX: ${videoWidth}
+PlayResY: ${videoHeight}
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,${Math.round(fontSize)},&H00FFFFFF,&HFF000000,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,1,2,4,${marginL},${marginR},0,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  const blocks = srtContent.trim().replace(/\r\n/g, "\n").split(/\n\n+/);
+
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    if (lines.length < 3) continue;
+    const timeLine = lines[1];
+    const text = lines.slice(2).join(" ");
+
+    const timeMatch = timeLine.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/);
+    if (!timeMatch) continue;
+
+    const startSec = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseInt(timeMatch[3]) + parseInt(timeMatch[4]) / 1000;
+    const endSec = parseInt(timeMatch[5]) * 3600 + parseInt(timeMatch[6]) * 60 + parseInt(timeMatch[7]) + parseInt(timeMatch[8]) / 1000;
+    const duration = endSec - startSec;
+
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    const wordIntervalCs = words.length > 1 ? Math.max(1, Math.round((duration / (words.length - 1)) * 100)) : 0;
+
+    let karaokeText = "";
+    for (let i = 0; i < words.length; i++) {
+      const kCs = i === 0 ? 0 : wordIntervalCs;
+      karaokeText += `{\\k${kCs}}${words[i]}`;
+      if (i < words.length - 1) karaokeText += " ";
+    }
+
+    const startTime = formatAssTimestamp(startSec);
+    const endTime = formatAssTimestamp(endSec);
+    ass += `Dialogue: 0,${startTime},${endTime},Default,,0,0,0,,${karaokeText}\n`;
+  }
+
+  return ass;
+}
+
 async function getVideoDuration(filepath: string): Promise<number> {
   return new Promise((resolve) => {
     const proc = spawn("ffprobe", [
@@ -724,6 +805,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
   try {
     const videoWidth = isAudioOnly ? 1920 : await getVideoWidth(source.filepath);
+    const videoHeight = isAudioOnly ? 1080 : await getVideoHeight(source.filepath);
     const videoFilters: string[] = [];
     const audioFilters: string[] = [];
 
@@ -853,6 +935,8 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       videoFilters.push(drawTextFilter);
     }
 
+    const subtitleTempFiles: string[] = [];
+
     if (!isAudioOnly && options.srtContent && typeof options.srtContent === "string") {
       const srtPath = path.join(DOWNLOAD_DIR, `${newFileId}.srt`);
       const baseFontSize = clamp(options.subtitleFontSize, 8, 48, 10);
@@ -862,17 +946,27 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       const marginR = Math.max(10, Math.round(80 * widthScale));
       const marginV = Math.max(15, Math.round(30 * widthScale));
 
+      const subtitleStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
+
       if (options.highlightKeywords && Array.isArray(options.highlightKeywords) && options.highlightKeywords.length > 0) {
         const assContent = srtToAssWithHighlights(options.srtContent, options.highlightKeywords, options.subtitleStyle || "classic", scaledFontSize);
         const assPath = path.join(DOWNLOAD_DIR, `${newFileId}.ass`);
         fs.writeFileSync(assPath, assContent, "utf-8");
+        subtitleTempFiles.push(assPath);
+        const escapedAssPath = assPath.replace(/:/g, "\\:").replace(/\\/g, "/");
+        videoFilters.push(`ass=${escapedAssPath}`);
+      } else if (subtitleStyle === "tiktok") {
+        const tiktokFontSize = Math.round(videoWidth * 0.04 * (baseFontSize / 14));
+        const assContent = generateTikTokAss(options.srtContent, tiktokFontSize, videoWidth, videoHeight);
+        const assPath = path.join(DOWNLOAD_DIR, `${newFileId}_karaoke.ass`);
+        fs.writeFileSync(assPath, assContent, "utf-8");
+        subtitleTempFiles.push(assPath);
         const escapedAssPath = assPath.replace(/:/g, "\\:").replace(/\\/g, "/");
         videoFilters.push(`ass=${escapedAssPath}`);
       } else {
         fs.writeFileSync(srtPath, options.srtContent, "utf-8");
+        subtitleTempFiles.push(srtPath);
         const escapedSrtPath = srtPath.replace(/:/g, "\\:").replace(/\\/g, "/");
-
-        const subtitleStyle = typeof options.subtitleStyle === "string" ? options.subtitleStyle : "classic";
         const styleMap: Record<string, string> = {
           classic: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,BackColour=&H80000000,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
           outline: `FontSize=${scaledFontSize},FontName=Arial,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=4,Shadow=0,Alignment=2,MarginV=${marginV},MarginL=${marginL},MarginR=${marginR},WrapStyle=0`,
@@ -1021,7 +1115,7 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
     await runFfmpeg(args);
 
-    for (const f of tempFiles) {
+    for (const f of [...tempFiles, ...subtitleTempFiles]) {
       try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
     }
 
@@ -1057,6 +1151,9 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     try {
       if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
     } catch {}
+    for (const f of subtitleTempFiles) {
+      try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+    }
     res.status(500).json({ error: err.message || "Failed to process video" });
   }
 });

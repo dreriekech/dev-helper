@@ -94,7 +94,8 @@ YouTube, TikTok, Douyin, Instagram, Facebook, Twitter/X, Vimeo, Dailymotion, Bil
 - **"Reshuffle" button**: regenerate random transforms before processing
 - **Auto Subtitle toggle**: when ON, automatically transcribes + translates + burns subtitles during reup
 - **Scene detection**: analyzes video for scene changes using ffprobe `select=gt(scene,0.3)`
-- **Advanced Settings** (collapsible): manual text overlay, subtitle style presets (6 styles), manual transcription
+- **TikTok Karaoke Subtitles**: ASS-based karaoke effect using `\k` tags — words appear one by one from left to right (typewriter effect), white text with shadow, centered vertically (alignment 4), font size = 4% of video width; generated from SRT with even word timing distribution
+- **Advanced Settings** (collapsible): manual text overlay, subtitle style presets (7 styles including TikTok karaoke), manual transcription
 - All numeric inputs are clamped to safe ranges; color strings are sanitized
 - Audio-only files skip video filters; output uses appropriate codec
 - Processed video is saved back to library with `[Reup]` prefix in title
