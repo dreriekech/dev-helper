@@ -1,0 +1,14 @@
+packages:
+  "framer-motion": "For smooth page transitions and beautiful stagger animations"
+  "clsx": "For merging tailwind classes conditionally"
+  "tailwind-merge": "For merging tailwind classes without conflicts"
+  "date-fns": "For formatting timestamps"
+
+images:
+  - path: "artifacts/video-downloader/public/images/hero-bg.png"
+    description: "Abstract glowing network lines and digital particles in deep violet and cyan on a pitch black background, creating a sleek modern technology vibe"
+    aspect_ratio: "16:9"
+
+notes:
+  - "The app relies on the @workspace/api-client-react hooks for API interactions."
+  - "Downloads trigger dynamically via generated stream URLs."

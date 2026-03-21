@@ -3,13 +3,15 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Video Downloader API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: video
+    description: Video download operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,94 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /video/extract:
+    post:
+      operationId: extractVideoInfo
+      tags: [video]
+      summary: Extract video information
+      description: Extract video metadata and available formats from a URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtractVideoRequest"
+      responses:
+        "200":
+          description: Video info extracted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoInfo"
+        "400":
+          description: Invalid URL or unsupported platform
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Failed to extract video info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /video/download:
+    post:
+      operationId: downloadVideo
+      tags: [video]
+      summary: Download video
+      description: Download video from URL with specified quality
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DownloadVideoRequest"
+      responses:
+        "200":
+          description: Download URL or stream
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DownloadResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Download failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /video/stream/{fileId}:
+    get:
+      operationId: streamVideo
+      tags: [video]
+      summary: Stream downloaded video file
+      description: Stream a previously downloaded video file
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Video file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +123,91 @@ components:
           type: string
       required:
         - status
-
+    ExtractVideoRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          description: Video URL from supported platforms
+      required:
+        - url
+    VideoFormat:
+      type: object
+      properties:
+        formatId:
+          type: string
+        quality:
+          type: string
+        extension:
+          type: string
+        filesize:
+          type: ["number", "null"]
+        hasAudio:
+          type: boolean
+        hasVideo:
+          type: boolean
+        resolution:
+          type: ["string", "null"]
+      required:
+        - formatId
+        - quality
+        - extension
+        - hasAudio
+        - hasVideo
+    VideoInfo:
+      type: object
+      properties:
+        title:
+          type: string
+        thumbnail:
+          type: ["string", "null"]
+        duration:
+          type: ["number", "null"]
+        platform:
+          type: string
+        uploader:
+          type: ["string", "null"]
+        formats:
+          type: array
+          items:
+            $ref: "#/components/schemas/VideoFormat"
+      required:
+        - title
+        - platform
+        - formats
+    DownloadVideoRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          description: Video URL
+        formatId:
+          type: string
+          description: Format ID to download
+        quality:
+          type: string
+          description: Quality preset (best, medium, low)
+      required:
+        - url
+    DownloadResult:
+      type: object
+      properties:
+        fileId:
+          type: string
+        filename:
+          type: string
+        filesize:
+          type: ["number", "null"]
+        streamUrl:
+          type: string
+      required:
+        - fileId
+        - filename
+        - streamUrl
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
