@@ -520,6 +520,10 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       audioFilters.push(`asetrate=44100*${audioPitch.toFixed(4)},aresample=44100`);
     }
 
+    if (!isAudioOnly && videoFilters.length > 0) {
+      videoFilters.push("scale=trunc(iw/2)*2:trunc(ih/2)*2");
+    }
+
     const args = ["-y", "-i", source.filepath];
 
     if (videoFilters.length > 0) {
