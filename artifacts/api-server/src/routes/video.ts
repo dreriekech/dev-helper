@@ -758,13 +758,13 @@ async function generateAmbientMusic(outputPath: string, duration: number): Promi
   const args = [
     "-y",
     "-f", "lavfi",
-    "-i", `anoisesrc=d=${dur}:c=pink:a=0.08,bandpass=f=300:width_type=h:w=200,aecho=0.8:0.7:40|60:0.3|0.2,volume=0.12`,
+    "-i", `anoisesrc=d=${dur}:c=pink:a=0.5,bandpass=f=300:width_type=h:w=200,aecho=0.8:0.7:40|60:0.3|0.2,volume=0.6`,
     "-f", "lavfi",
-    "-i", `sine=f=220:d=${dur},volume=0.03,aecho=0.8:0.9:100:0.3`,
+    "-i", `sine=f=220:d=${dur},volume=0.25,aecho=0.8:0.9:100:0.3`,
     "-f", "lavfi",
-    "-i", `sine=f=330:d=${dur},volume=0.02,tremolo=f=0.5:d=0.4`,
-    "-filter_complex", `[0][1][2]amix=inputs=3:duration=first:dropout_transition=2,afade=t=in:st=0:d=2,afade=t=out:st=${Math.max(0, dur - 3)}:d=3`,
-    "-c:a", "aac", "-b:a", "96k",
+    "-i", `sine=f=330:d=${dur},volume=0.15,tremolo=f=0.5:d=0.4`,
+    "-filter_complex", `[0][1][2]amix=inputs=3:duration=first:dropout_transition=2:normalize=0,afade=t=in:st=0:d=2,afade=t=out:st=${Math.max(0, dur - 3)}:d=3,volume=1.5`,
+    "-c:a", "aac", "-b:a", "128k", "-ac", "2",
     outputPath,
   ];
   await runFfmpeg(args);
@@ -1006,11 +1006,13 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
 
     let ttsAudioPath: string | null = null;
     let bgMusicPath: string | null = null;
+    let voiceRequested = false;
     const tempFiles: string[] = [];
 
     if (!isAudioOnly && options.voiceFromSubtitles === true && options.srtContent && typeof options.srtContent === "string") {
       const { text } = extractTextFromSrt(options.srtContent);
       if (text.trim()) {
+        voiceRequested = true;
         try {
           const ttsBody: Record<string, string> = { text, lang: options.voiceLang || "vi" };
           if (options.voiceId) ttsBody.voiceId = options.voiceId;
@@ -1088,32 +1090,45 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     if (videoFilters.length > 0) {
       args.push("-vf", videoFilters.join(","));
     }
-    if (audioFilters.length > 0 && !hasVoice && !hasBgMusic) {
-      args.push("-af", audioFilters.join(","));
-    }
-
     const voiceIdx = hasVoice ? 1 : -1;
     const bgmIdx = hasVoice && hasBgMusic ? 2 : hasBgMusic ? 1 : -1;
 
-    if (options.stripAudio === true && !isAudioOnly && !hasVoice && !hasBgMusic) {
+    const voiceFailedFallback = options.stripAudio === true && voiceRequested && !hasVoice;
+    if (voiceFailedFallback) {
+      console.warn("Voice was requested but TTS failed — keeping original audio as fallback instead of stripping");
+    }
+
+    const effectiveStripAudio = options.stripAudio === true && !voiceFailedFallback;
+    const origAudioChain = audioFilters.length > 0 ? `[0:a]${audioFilters.join(",")},` : "[0:a]";
+    const useFilterComplex = hasVoice || hasBgMusic || (voiceFailedFallback && hasBgMusic);
+
+    if (!useFilterComplex && audioFilters.length > 0) {
+      args.push("-af", audioFilters.join(","));
+    }
+
+    if (effectiveStripAudio && !isAudioOnly && !hasVoice && !hasBgMusic) {
       args.push("-an");
-    } else if (options.stripAudio === true && !isAudioOnly) {
+    } else if (effectiveStripAudio && !isAudioOnly) {
       if (hasVoice && hasBgMusic) {
         args.push("-filter_complex", `[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.3[bgm];[voice][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       } else if (hasVoice) {
         args.push("-map", "0:v", "-map", `${voiceIdx}:a`);
       } else if (hasBgMusic) {
-        args.push("-map", "0:v", "-map", `${bgmIdx}:a`);
+        args.push("-filter_complex", `${origAudioChain}volume=0.15[orig];[${bgmIdx}:a]volume=0.5[bgm];[orig][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
+        args.push("-map", "0:v", "-map", "[aout]");
       }
     } else if (hasVoice) {
       if (hasBgMusic) {
-        args.push("-filter_complex", `[0:a]volume=0.3[orig];[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.25[bgm];[orig][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3:normalize=0[aout]`);
+        args.push("-filter_complex", `${origAudioChain}volume=0.3[orig];[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.25[bgm];[orig][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3:normalize=0[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       } else {
-        args.push("-filter_complex", `[0:a]volume=0.3[orig];[${voiceIdx}:a]volume=1.0[voice];[orig][voice]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
+        args.push("-filter_complex", `${origAudioChain}volume=0.3[orig];[${voiceIdx}:a]volume=1.0[voice];[orig][voice]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
       }
+    } else if (voiceFailedFallback && hasBgMusic) {
+      args.push("-filter_complex", `${origAudioChain}volume=0.7[orig];[${bgmIdx}:a]volume=0.3[bgm];[orig][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
+      args.push("-map", "0:v", "-map", "[aout]");
     }
 
     if (!isAudioOnly) {
