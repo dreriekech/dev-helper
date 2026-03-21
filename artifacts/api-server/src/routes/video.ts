@@ -823,6 +823,13 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
   try {
     const videoWidth = isAudioOnly ? 1920 : await getVideoWidth(source.filepath);
     const videoHeight = isAudioOnly ? 1080 : await getVideoHeight(source.filepath);
+
+    let sourceHasAudio = true;
+    try {
+      const audioProbe = await runFfprobe(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0", source.filepath]);
+      sourceHasAudio = audioProbe.trim().length > 0;
+    } catch { sourceHasAudio = false; }
+
     const videoFilters: string[] = [];
     const audioFilters: string[] = [];
 
@@ -1099,10 +1106,10 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
     }
 
     const effectiveStripAudio = options.stripAudio === true && !voiceFailedFallback;
-    const origAudioChain = audioFilters.length > 0 ? `[0:a]${audioFilters.join(",")},` : "[0:a]";
+    const origAudioChain = sourceHasAudio && audioFilters.length > 0 ? `[0:a]${audioFilters.join(",")},` : sourceHasAudio ? "[0:a]" : "";
     const useFilterComplex = hasVoice || hasBgMusic || (voiceFailedFallback && hasBgMusic);
 
-    if (!useFilterComplex && audioFilters.length > 0) {
+    if (!useFilterComplex && audioFilters.length > 0 && sourceHasAudio) {
       args.push("-af", audioFilters.join(","));
     }
 
@@ -1115,20 +1122,33 @@ router.post("/video/reup", validateApiKey, async (req, res): Promise<void> => {
       } else if (hasVoice) {
         args.push("-map", "0:v", "-map", `${voiceIdx}:a`);
       } else if (hasBgMusic) {
-        args.push("-filter_complex", `${origAudioChain}volume=0.15[orig];[${bgmIdx}:a]volume=0.5[bgm];[orig][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
+        if (sourceHasAudio) {
+          args.push("-filter_complex", `${origAudioChain}volume=0.15[orig];[${bgmIdx}:a]volume=0.5[bgm];[orig][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
+        } else {
+          args.push("-filter_complex", `[${bgmIdx}:a]volume=0.5[aout]`);
+        }
         args.push("-map", "0:v", "-map", "[aout]");
       }
     } else if (hasVoice) {
-      if (hasBgMusic) {
+      if (hasBgMusic && sourceHasAudio) {
         args.push("-filter_complex", `${origAudioChain}volume=0.3[orig];[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.25[bgm];[orig][voice][bgm]amix=inputs=3:duration=longest:dropout_transition=3:normalize=0[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
-      } else {
+      } else if (hasBgMusic) {
+        args.push("-filter_complex", `[${voiceIdx}:a]volume=1.0[voice];[${bgmIdx}:a]volume=0.25[bgm];[voice][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
+        args.push("-map", "0:v", "-map", "[aout]");
+      } else if (sourceHasAudio) {
         args.push("-filter_complex", `${origAudioChain}volume=0.3[orig];[${voiceIdx}:a]volume=1.0[voice];[orig][voice]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
         args.push("-map", "0:v", "-map", "[aout]");
+      } else {
+        args.push("-map", "0:v", "-map", `${voiceIdx}:a`);
       }
-    } else if (voiceFailedFallback && hasBgMusic) {
+    } else if (voiceFailedFallback && hasBgMusic && sourceHasAudio) {
       args.push("-filter_complex", `${origAudioChain}volume=0.7[orig];[${bgmIdx}:a]volume=0.3[bgm];[orig][bgm]amix=inputs=2:duration=longest:dropout_transition=3:normalize=0[aout]`);
       args.push("-map", "0:v", "-map", "[aout]");
+    } else if (voiceFailedFallback && hasBgMusic) {
+      args.push("-map", "0:v", "-map", `${bgmIdx}:a`);
+    } else if (!sourceHasAudio && !hasVoice && !hasBgMusic) {
+      args.push("-an");
     }
 
     if (!isAudioOnly) {

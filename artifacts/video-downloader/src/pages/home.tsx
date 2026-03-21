@@ -510,15 +510,7 @@ export default function Home() {
       </nav>
 
       <main className="flex-1 max-w-6xl mx-auto px-4 py-6 w-full">
-        <AnimatePresence mode="wait">
-          {activeTab === "download" ? (
-            <motion.div
-              key="download"
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-              transition={{ duration: 0.15 }}
-            >
+          <div style={{ display: activeTab === "download" ? "block" : "none" }}>
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
                 <div className="space-y-4">
                   <div className="bg-[#12121a] rounded-xl border border-white/5 p-5">
@@ -645,15 +637,8 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            </motion.div>
-          ) : activeTab === "library" ? (
-            <motion.div
-              key="library"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              transition={{ duration: 0.15 }}
-            >
+          </div>
+          <div style={{ display: activeTab === "library" ? "block" : "none" }}>
               <div className="max-w-3xl mx-auto">
                 <div className="mb-4">
                   <p className="text-xs text-white/40">{t.libraryDesc}</p>
@@ -668,15 +653,8 @@ export default function Home() {
                   t={t}
                 />
               </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="reup"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              transition={{ duration: 0.15 }}
-            >
+          </div>
+          <div style={{ display: activeTab === "reup" ? "block" : "none" }}>
               <ReupTools
                 libraryItems={library.items}
                 apiKey={apiKeyValue}
@@ -684,9 +662,7 @@ export default function Home() {
                 t={t}
                 lang={lang}
               />
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </div>
       </main>
     </div>
   );
