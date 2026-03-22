@@ -1,8 +1,9 @@
 {
-  "name": "workspace",
+  "name": "video-downloader",
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
+    "start": "node lib/index.js",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
